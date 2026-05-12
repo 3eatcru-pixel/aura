@@ -240,13 +240,13 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
       const chapterPath = `projects/${project.id}/chapters/${activeChapterId}`;
       const projectPath = `projects/${project.id}`;
       
-      await updateDoc(doc(db, chapterPath), {
+      await updateDoc(doc(db, 'projects', project.id, 'chapters', activeChapterId), {
         content: content,
         updatedAt: serverTimestamp(),
       }).catch(err => handleFirestoreError(err, OperationType.UPDATE, chapterPath));
       
       // Também atualiza o updatedAt do projeto para refletir atividade
-      await updateDoc(doc(db, projectPath), {
+      await updateDoc(doc(db, 'projects', project.id), {
         updatedAt: serverTimestamp()
       }).catch(err => handleFirestoreError(err, OperationType.UPDATE, projectPath));
       
@@ -267,16 +267,15 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
       await handleSave();
     }
 
-    const path = `projects/${project.id}/chapters`;
     setSaveStatus('saving');
     try {
-      const docRef = await addDoc(collection(db, path), {
+      const docRef = await addDoc(collection(db, 'projects', project.id, 'chapters'), {
         title: capTitle,
         content: '',
         order: nextOrder,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      }).catch(err => handleFirestoreError(err, OperationType.CREATE, path));
+      }).catch(err => handleFirestoreError(err, OperationType.CREATE, `projects/${project.id}/chapters`));
       
       if (docRef) {
         setActiveChapterId(docRef.id);
@@ -293,8 +292,8 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     }
   };
 
-  const handleChapterSwitch = (chapterId: string) => {
-    // Switch tab even if it's the same chapter, to make it "open"
+  const handleChapterSwitch = async (chapterId: string) => {
+    // Switch tab even se for o mesmo capítulo, para atualizar a interface
     setActiveTab('writing');
     setShowManuscript(false);
     
@@ -302,7 +301,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
     const currentChapter = chapters.find(c => c.id === activeChapterId);
     if (currentChapter && content !== currentChapter.content) {
-      handleSave();
+      await handleSave();
     }
     const target = chapters.find(c => c.id === chapterId);
     if (target) {
@@ -322,7 +321,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
     const path = `projects/${project.id}/chapters/${chapterId}`;
     try {
-      await updateDoc(doc(db, path), {
+      await updateDoc(doc(db, 'projects', project.id, 'chapters', chapterId), {
         title: newTitle || oldTitle,
         ambientAudioUrl: ambientUrl,
         updatedAt: serverTimestamp()
@@ -341,11 +340,11 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
     const path = `projects/${project.id}/chapters/${chapterId}`;
     try {
-      await deleteDoc(doc(db, path)).catch(err => handleFirestoreError(err, OperationType.DELETE, path));
+      await deleteDoc(doc(db, 'projects', project.id, 'chapters', chapterId)).catch(err => handleFirestoreError(err, OperationType.DELETE, path));
       if (activeChapterId === chapterId) {
         const remaining = chapters.filter(c => c.id !== chapterId);
         if (remaining.length > 0) {
-          handleChapterSwitch(remaining[0].id);
+          await handleChapterSwitch(remaining[0].id);
         }
       }
     } catch (err) {
@@ -353,10 +352,10 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     }
   };
 
-  const handleTabChange = (tab: EditorTab) => {
+  const handleTabChange = async (tab: EditorTab) => {
     const currentChapter = chapters.find(c => c.id === activeChapterId);
     if (activeTab !== tab && currentChapter && content !== currentChapter.content) {
-      handleSave();
+      await handleSave();
     }
     if (tab !== 'lore') setArchitectMode(false);
     if (tab !== 'writing') {
