@@ -1,0 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:ital,wght@0,300;0,400;0,600;1,300;1,400;1,600&family=Inter:wght@400;500;600;700;900&family=JetBrains+Mono:wght@400;700&family=Bebas+Neue&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-serif: "Crimson Pro", serif;
+  --font-sans: "Plus Jakarta Sans", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-brand: "Bebas Neue", cursive;
+
+  --color-editorial-bg: #0D0D0D;
+  --color-editorial-sidebar: #151515;
+  --color-editorial-accent: #7C3AED;
+  --color-editorial-border: #262626;
+  --color-editorial-muted: #9CA3AF;
+  --color-editorial-paper: #1A1A1A;
+  --color-editorial-highlight: #2D2D2D;
+  --color-editorial-highlight-border: #3D3D3D;
+  
+  --color-aura-gold: #FF3D71;
+  --color-aura-deep: #050505;
+}
+
+@layer base {
+  .font-brand {
+    font-family: var(--font-brand);
+    letter-spacing: 0.05em;
+  }
+  body {
+    @apply bg-editorial-bg text-[#EAEAEA] antialiased font-sans;
+  }
+
+  /* Custom Scrollbar Dark */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-white/10 rounded-full hover:bg-editorial-accent/50 transition-colors;
+  }
+
+  .custom-scrollbar {
+     scrollbar-width: thin;
+     scrollbar-color: rgba(255,255,255,0.1) transparent;
+  }
+}
+
+.glass-panel {
+  @apply bg-white/5 backdrop-blur-md border border-white/10;
+}
+
+.shadow-neon {
+  box-shadow: 0 0 20px rgba(124, 58, 237, 0.2);
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}

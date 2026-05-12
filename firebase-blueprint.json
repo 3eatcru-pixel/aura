@@ -1,0 +1,230 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["displayName", "email", "createdAt"]
+    },
+    "Universe": {
+      "title": "Universe",
+      "description": "A world or setting containing multiple stories",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "ownerId", "createdAt", "updatedAt"]
+    },
+    "Project": {
+      "title": "Project",
+      "description": "A writing project / story",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "description": { "type": "string" },
+        "ownerId": { "type": "string" },
+        "universeId": { "type": "string" },
+        "type": { "type": "string", "enum": ["novel", "manga", "script", "comic", "rpg", "lore"] },
+        "currentContent": { "type": "string" },
+        "genre": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "ownerId", "type", "createdAt", "updatedAt"]
+    },
+    "Character": {
+      "title": "Character",
+      "description": "A character in the story",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "role": { "type": "string" },
+        "traits": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "isAutoDetected": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "updatedAt"]
+    },
+    "StoryItem": {
+      "title": "StoryItem",
+      "description": "An item, object, function or magic system in the story",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["item", "magic", "function", "location", "lore"] },
+        "properties": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "type", "updatedAt"]
+    },
+    "ArtAsset": {
+      "title": "ArtAsset",
+      "description": "Visual concept art or comic panels",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "imageUrl": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["concept", "panel", "background"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "imageUrl", "type", "createdAt"]
+    },
+    "Lore": {
+      "title": "Lore",
+      "description": "World building notes and lore",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "category": { "type": "string", "enum": ["world", "lore", "note", "rpg", "item", "magic", "faction", "timeline"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "category", "updatedAt"]
+    },
+    "LoreVersion": {
+      "title": "LoreVersion",
+      "description": "A saved version of a lore entry",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["content", "createdAt"]
+    },
+    "Version": {
+      "title": "Version",
+      "description": "A saved version of the story",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "note": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["content", "createdAt"]
+    },
+    "WritingSchedule": {
+      "title": "WritingSchedule",
+      "description": "Writing goals and schedule",
+      "type": "object",
+      "properties": {
+        "goal": { "type": "number" },
+        "deadline": { "type": "string", "format": "date-time" },
+        "currentProgress": { "type": "number" },
+        "title": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["goal", "deadline", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "A message in the AI chatbot conversation",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string", "enum": ["user", "assistant"] },
+        "text": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["role", "text", "createdAt"]
+    },
+    "Chapter": {
+      "title": "Chapter",
+      "description": "A chapter within a project",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "order": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "content", "order", "updatedAt", "createdAt"]
+    },
+    "CinematicNode": {
+      "title": "CinematicNode",
+      "description": "A node in the cinematic direct board (storyboard/panel)",
+      "type": "object",
+      "properties": {
+        "type": { "type": "string", "enum": ["panel", "scene", "text", "ref"] },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "content": { "type": "object" },
+        "order": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["type", "x", "y", "width", "height", "content", "order", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/universes/{universeId}": {
+      "schema": "Universe",
+      "description": "Global universes/worlds grouping projects"
+    },
+    "/projects/{projectId}": {
+      "schema": "Project",
+      "description": "Main writing projects"
+    },
+    "/projects/{projectId}/art/{artId}": {
+      "schema": "ArtAsset",
+      "description": "Visual assets and storyboards for the project"
+    },
+    "/projects/{projectId}/characters/{characterId}": {
+      "schema": "Character",
+      "description": "Characters within a project"
+    },
+    "/projects/{projectId}/lore/{loreId}": {
+      "schema": "Lore",
+      "description": "Lore and notes within a project"
+    },
+    "/projects/{projectId}/lore/{loreId}/versions/{versionId}": {
+      "schema": "LoreVersion",
+      "description": "History of versions for a lore entry"
+    },
+    "/projects/{projectId}/items/{itemId}": {
+      "schema": "StoryItem",
+      "description": "Unique items, spells, or systems in the story"
+    },
+    "/projects/{projectId}/versions/{versionId}": {
+      "schema": "Version",
+      "description": "History of versions for a story"
+    },
+    "/projects/{projectId}/schedules/{scheduleId}": {
+      "schema": "WritingSchedule",
+      "description": "Schedules and goals for a project"
+    },
+    "/projects/{projectId}/chat/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "AI Chat history for a project"
+    },
+    "/projects/{projectId}/chapters/{chapterId}": {
+      "schema": "Chapter",
+      "description": "Chapters of the manuscript"
+    },
+    "/projects/{projectId}/cinematic/{nodeId}": {
+      "schema": "CinematicNode",
+      "description": "Cinematic nodes for the visual storyboard"
+    }
+  }
+}
