@@ -61,7 +61,7 @@ export function AIChat({ project, currentContent }: AIChatProps) {
         Descrição: ${project.description || "N/A"}
         Natureza/Gênero: ${project.type || "N/A"}
         Papel do Assistente: Você está atuando como ${activeExpert}.
-        Conteúdo Atual do Capítulo: ${contextText.slice(-4000) || "Início da história"}
+        Conteúdo Atual da Página: ${contextText.slice(-4000) || "Início da história"}
       `;
 
       // 3. Get AI Response
@@ -209,7 +209,7 @@ export function AIChat({ project, currentContent }: AIChatProps) {
             {['Reviravoltas', 'Ambiente', 'Personagem'].map(tip => (
               <button 
                 key={tip}
-                onClick={() => setInput(`Dê-me ideias de ${tip} para o capítulo atual.`)}
+                onClick={() => setInput(`Dê-me ideias de ${tip} para a página atual.`)}
                 className="px-4 py-1.5 bg-white text-[9px] text-editorial-muted font-bold rounded-full uppercase tracking-widest hover:bg-editorial-accent hover:text-white transition-all border border-editorial-border/40 shadow-sm"
               >
                 {tip}

@@ -7,17 +7,17 @@
   --font-mono: "JetBrains Mono", monospace;
   --font-brand: "Bebas Neue", cursive;
 
-  --color-editorial-bg: #0D0D0D;
-  --color-editorial-sidebar: #151515;
-  --color-editorial-accent: #7C3AED;
-  --color-editorial-border: #262626;
-  --color-editorial-muted: #9CA3AF;
-  --color-editorial-paper: #1A1A1A;
-  --color-editorial-highlight: #2D2D2D;
-  --color-editorial-highlight-border: #3D3D3D;
+  --color-editorial-bg: #050505;
+  --color-editorial-sidebar: #0a0a0a;
+  --color-editorial-accent: #8b5cf6;
+  --color-editorial-border: #1a1a1a;
+  --color-editorial-muted: #4b5563;
+  --color-editorial-paper: #080808;
+  --color-editorial-highlight: #1a1033;
+  --color-editorial-highlight-border: #2e1065;
   
   --color-aura-gold: #FF3D71;
-  --color-aura-deep: #050505;
+  --color-aura-deep: #000000;
 }
 
 @layer base {
@@ -31,8 +31,8 @@
 
   /* Custom Scrollbar Dark */
   ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 4px;
+    height: 4px;
   }
 
   ::-webkit-scrollbar-track {
@@ -40,21 +40,29 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-white/10 rounded-full hover:bg-editorial-accent/50 transition-colors;
+    @apply bg-white/10 rounded-full hover:bg-editorial-accent transition-colors;
   }
 
   .custom-scrollbar {
      scrollbar-width: thin;
-     scrollbar-color: rgba(255,255,255,0.1) transparent;
+     scrollbar-color: rgba(255,255,255,0.05) transparent;
   }
 }
 
 .glass-panel {
-  @apply bg-white/5 backdrop-blur-md border border-white/10;
+  @apply bg-white/2 backdrop-blur-3xl border border-white/5;
 }
 
 .shadow-neon {
-  box-shadow: 0 0 20px rgba(124, 58, 237, 0.2);
+  box-shadow: 0 0 25px rgba(139, 92, 246, 0.3);
+}
+
+.shadow-neon-small {
+  box-shadow: 0 0 15px rgba(139, 92, 246, 0.15);
+}
+
+.shadow-neon-white {
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.1);
 }
 
 .scrollbar-hide::-webkit-scrollbar {

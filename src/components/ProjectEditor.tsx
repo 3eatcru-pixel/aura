@@ -9,9 +9,9 @@ import { cn, formatDate } from '../lib/utils';
 import { VisualManager } from './VisualManager';
 import { LoreManager } from './LoreManager';
 import { CharacterList } from './CharacterList';
-import { AIChat } from './AIChat';
 import { AuditPanel } from './AuditPanel';
 import { CinematicDirector } from './CinematicDirector';
+import { AssistantPanel } from './AssistantPanel';
 import { AuditReport } from '../types';
 import { BarChart3, RefreshCw, CheckCircle2, Wand2 } from 'lucide-react';
 
@@ -121,7 +121,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
         } 
         // Se não houver capítulos, cria o primeiro
         else if (caps.length === 0 && snap.metadata.fromCache === false) {
-           handleCreateChapter("Capítulo 1");
+           handleCreateChapter("Página 1");
         }
       }
     );
@@ -240,13 +240,13 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
       const chapterPath = `projects/${project.id}/chapters/${activeChapterId}`;
       const projectPath = `projects/${project.id}`;
       
-      await updateDoc(doc(db, 'projects', project.id, 'chapters', activeChapterId), {
+      await updateDoc(doc(db, chapterPath), {
         content: content,
         updatedAt: serverTimestamp(),
       }).catch(err => handleFirestoreError(err, OperationType.UPDATE, chapterPath));
       
       // Também atualiza o updatedAt do projeto para refletir atividade
-      await updateDoc(doc(db, 'projects', project.id), {
+      await updateDoc(doc(db, projectPath), {
         updatedAt: serverTimestamp()
       }).catch(err => handleFirestoreError(err, OperationType.UPDATE, projectPath));
       
@@ -257,43 +257,75 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     }
   };
 
-  const handleCreateChapter = async (title?: string) => {
+  const handleCreateChapter = async (groupTitleOverride?: string) => {
     const nextOrder = chapters.length > 0 ? Math.max(...chapters.map(c => c.order || 0)) + 1 : 1;
-    const capTitle = title || `Capítulo ${chapters.length + 1}`;
     
     // Save current content before switching
     const currentChapter = chapters.find(c => c.id === activeChapterId);
+    // If we're not overriding, inherit from current chapter
+    const targetGroup = groupTitleOverride !== undefined ? groupTitleOverride : (currentChapter?.groupTitle || "");
+    
     if (currentChapter && content !== currentChapter.content) {
       await handleSave();
     }
 
+    const path = `projects/${project.id}/chapters`;
     setSaveStatus('saving');
     try {
-      const docRef = await addDoc(collection(db, 'projects', project.id, 'chapters'), {
-        title: capTitle,
+      const docRef = await addDoc(collection(db, path), {
+        title: `Página ${nextOrder}`,
+        subtitle: '',
         content: '',
         order: nextOrder,
+        groupTitle: targetGroup,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
-      }).catch(err => handleFirestoreError(err, OperationType.CREATE, `projects/${project.id}/chapters`));
+      }).catch(err => handleFirestoreError(err, OperationType.CREATE, path));
       
       if (docRef) {
         setActiveChapterId(docRef.id);
         setContent('');
         initialWordCount.current = 0;
-        setActiveTab('writing'); // Ensure we go to the writing tab
-        setShowManuscript(true); // Keep drawer open to show the new chapter in list
+        setActiveTab('writing'); 
         setSaveStatus('saved');
       }
     } catch (err) {
       console.error("Create chapter error:", err);
       setSaveStatus('error');
-      alert("Erro ao criar capítulo.");
     }
   };
 
-  const handleChapterSwitch = async (chapterId: string) => {
-    // Switch tab even se for o mesmo capítulo, para atualizar a interface
+  const handleCreateArc = async () => {
+    const arcTitle = prompt("Nome do Novo Arco / Sequência:");
+    if (!arcTitle) return;
+    
+    // Create first page in this arc
+    handleCreateChapter(arcTitle);
+  };
+
+  const handleRenameGroup = async (oldGroup: string) => {
+    if (oldGroup === "Páginas Avulsas" || !oldGroup) return;
+    const newGroupName = prompt("Novo nome para este Arco:", oldGroup);
+    if (!newGroupName || newGroupName === oldGroup) return;
+
+    setSaveStatus('saving');
+    try {
+      const groupPages = chapters.filter(c => (c.groupTitle?.trim() || "Páginas Avulsas") === oldGroup);
+      for (const page of groupPages) {
+        await updateDoc(doc(db, 'projects', project.id, 'chapters', page.id), {
+          groupTitle: newGroupName,
+          updatedAt: serverTimestamp()
+        });
+      }
+      setSaveStatus('saved');
+    } catch (error) {
+      console.error(error);
+      setSaveStatus('error');
+    }
+  };
+
+  const handleChapterSwitch = (chapterId: string) => {
+    // Switch tab even if it's the same chapter, to make it "open"
     setActiveTab('writing');
     setShowManuscript(false);
     
@@ -301,7 +333,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
     const currentChapter = chapters.find(c => c.id === activeChapterId);
     if (currentChapter && content !== currentChapter.content) {
-      await handleSave();
+      handleSave();
     }
     const target = chapters.find(c => c.id === chapterId);
     if (target) {
@@ -313,16 +345,29 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
   const handleRenameChapter = async (chapterId: string, oldTitle: string) => {
     const chapter = chapters.find(c => c.id === chapterId);
-    const newTitle = prompt("Novo nome do capítulo:", oldTitle);
-    if (newTitle === null) return;
     
-    const ambientUrl = prompt("Link do Áudio Ambiente/Trilha (Opcional):", chapter?.ambientAudioUrl || '');
+    // Sugestão de Capítulos/Arcos existentes
+    const existingGroups = Array.from(new Set(chapters.map(c => c.groupTitle).filter(Boolean)));
+    const groupsHint = existingGroups.length > 0 ? `\n\nArcos atuais: ${existingGroups.join(", ")}` : "";
+
+    const newTitle = prompt("Título da Página:", oldTitle);
+    if (newTitle === null) return;
+
+    const newSubtitle = prompt("Subtítulo da Página (Opcional):", chapter?.subtitle || "");
+    if (newSubtitle === null) return;
+    
+    const newGroup = prompt(`Nome do Arco / Capítulo:${groupsHint}\n(Ex: Arco 1: O Início, Capítulo 1, Prólogo)`, chapter?.groupTitle || "");
+    if (newGroup === null) return;
+
+    const ambientUrl = prompt("Link de Áudio Ambiente (YouTube/MP3 URL):", chapter?.ambientAudioUrl || '');
     if (ambientUrl === null) return;
 
     const path = `projects/${project.id}/chapters/${chapterId}`;
     try {
-      await updateDoc(doc(db, 'projects', project.id, 'chapters', chapterId), {
+      await updateDoc(doc(db, path), {
         title: newTitle || oldTitle,
+        subtitle: newSubtitle || "",
+        groupTitle: newGroup || "",
         ambientAudioUrl: ambientUrl,
         updatedAt: serverTimestamp()
       }).catch(err => handleFirestoreError(err, OperationType.UPDATE, path));
@@ -331,20 +376,32 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     }
   };
 
+  const handleUpdatePageMetadata = async (chapterId: string, field: string, value: string) => {
+    const path = `projects/${project.id}/chapters/${chapterId}`;
+    try {
+      await updateDoc(doc(db, path), {
+        [field]: value,
+        updatedAt: serverTimestamp()
+      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, path));
+    } catch (err) {
+      console.error(`Update page ${field} error:`, err);
+    }
+  };
+
   const handleDeleteChapter = async (chapterId: string, title: string) => {
     if (chapters.length <= 1) {
-      alert("O manuscrito precisa de pelo menos um capítulo.");
+      alert("O manuscrito precisa de pelo menos uma página.");
       return;
     }
-    if (!confirm(`Tem certeza que deseja apagar o capítulo "${title}"? Esta ação não pode ser desfeita.`)) return;
+    if (!confirm(`Tem certeza que deseja apagar a página "${title}"? Esta ação não pode ser desfeita.`)) return;
 
     const path = `projects/${project.id}/chapters/${chapterId}`;
     try {
-      await deleteDoc(doc(db, 'projects', project.id, 'chapters', chapterId)).catch(err => handleFirestoreError(err, OperationType.DELETE, path));
+      await deleteDoc(doc(db, path)).catch(err => handleFirestoreError(err, OperationType.DELETE, path));
       if (activeChapterId === chapterId) {
         const remaining = chapters.filter(c => c.id !== chapterId);
         if (remaining.length > 0) {
-          await handleChapterSwitch(remaining[0].id);
+          handleChapterSwitch(remaining[0].id);
         }
       }
     } catch (err) {
@@ -352,10 +409,10 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     }
   };
 
-  const handleTabChange = async (tab: EditorTab) => {
+  const handleTabChange = (tab: EditorTab) => {
     const currentChapter = chapters.find(c => c.id === activeChapterId);
     if (activeTab !== tab && currentChapter && content !== currentChapter.content) {
-      await handleSave();
+      handleSave();
     }
     if (tab !== 'lore') setArchitectMode(false);
     if (tab !== 'writing') {
@@ -660,373 +717,290 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className={cn("flex h-full transition-all duration-700 bg-editorial-bg text-[#EAEAEA]")}
+      className={cn("flex flex-col h-screen overflow-hidden bg-editorial-bg text-[#EAEAEA]")}
     >
+      {/* 1. TOP NAVBAR */}
       {!isZenMode && (
-        <div className="w-20 border-r border-white/5 bg-editorial-sidebar flex flex-col items-center py-10 gap-6 shrink-0 z-50">
-           <div 
-             className="w-12 h-12 bg-editorial-accent/10 rounded-2xl flex items-center justify-center text-editorial-accent mb-6 border border-editorial-accent/20 cursor-pointer hover:bg-editorial-accent hover:text-white transition-all shadow-neon"
-             onClick={() => window.location.reload()}
-           >
-              <Layout className="w-6 h-6" />
-           </div>
+        <div className="h-20 shrink-0 border-b border-white/5 flex items-center justify-between px-8 bg-editorial-bg/80 backdrop-blur-3xl z-[60]">
+          <div className="flex items-center gap-12">
+            {/* Logo */}
+            <div className="flex flex-col">
+              <h1 className="text-2xl font-brand tracking-[0.2em] text-white">MANGAOS</h1>
+              <span className="text-[7px] font-black uppercase tracking-[0.4em] text-white/20 -mt-1">WRITER_MODE v2.1</span>
+            </div>
 
-           <div className="flex flex-col gap-4">
-             <button 
-               onClick={() => handleTabChange('writing')}
-               className={cn("p-4 rounded-2xl transition-all group relative", activeTab === 'writing' ? "text-editorial-accent bg-white/5 shadow-neon" : "text-editorial-muted hover:text-white hover:bg-white/5")}
-               title="Área de Escrita"
-             >
-                <PenTool className="w-5 h-5" />
-                {activeTab === 'writing' && <motion.div layoutId="tab-p" className="absolute left-0 w-1 h-6 bg-editorial-accent rounded-full" />}
-             </button>
-             <button 
-               onClick={() => { setShowChat(!showChat); if (!showChat) { setShowManuscript(false); setShowResearch(false); setShowVersions(false); } }}
-               className={cn("p-4 rounded-2xl transition-all group relative", showChat ? "text-editorial-accent bg-white/5 shadow-neon" : "text-editorial-muted hover:text-white hover:bg-white/5")}
-               title="Oráculo IA"
-             >
-                <Sparkles className="w-5 h-5" />
-             </button>
-             <button 
-               onClick={() => setShowManuscript(!showManuscript)}
-               className={cn("p-4 rounded-2xl transition-all group relative", showManuscript ? "text-editorial-accent bg-white/5 shadow-neon" : "text-editorial-muted hover:text-white hover:bg-white/5")}
-               title="Manuscrito"
-             >
-                <Book className="w-5 h-5" />
-             </button>
-             <button 
-               onClick={() => handleTabChange('visual')}
-               className={cn("p-4 rounded-2xl transition-all group relative", activeTab === 'visual' ? "text-editorial-accent bg-white/5 shadow-neon" : "text-editorial-muted hover:text-white hover:bg-white/5")}
-               title="Storyboard & Arte"
-             >
-                <ImageIcon className="w-5 h-5" />
-             </button>
-             <button 
-               onClick={() => { handleTabChange('lore'); setArchitectMode(true); }}
-               className={cn("p-4 rounded-2xl transition-all group relative", activeTab === 'lore' ? "text-editorial-accent bg-white/5 shadow-neon" : "text-editorial-muted hover:text-white hover:bg-white/5")}
-               title="Enciclopédia"
-             >
-                <Globe className="w-5 h-5" />
-             </button>
-             <button 
-               onClick={() => setShowResearch(!showResearch)}
-               className={cn("p-4 rounded-2xl transition-all group relative", showResearch ? "text-editorial-accent bg-white/5 shadow-neon" : "text-editorial-muted hover:text-white hover:bg-white/5")}
-               title="Pesquisa Experimental"
-             >
-                <Search className="w-5 h-5" />
-             </button>
-             <button 
-               onClick={() => { setShowAudit(!showAudit); if (!showAudit) { setShowManuscript(false); setShowResearch(false); setShowVersions(false); setShowChat(false); } }}
-               className={cn("p-4 rounded-2xl transition-all group relative", showAudit ? "text-editorial-accent bg-white/5 shadow-neon" : "text-editorial-muted hover:text-white hover:bg-white/5")}
-               title="Observatório de QA"
-             >
-                <BarChart3 className="w-5 h-5" />
-             </button>
-             <button 
-               onClick={() => { setShowDirector(true); setShowAudit(false); setShowManuscript(false); setShowResearch(false); }}
-               className={cn("p-4 rounded-2xl transition-all group relative", showDirector ? "text-editorial-accent bg-white/5 shadow-neon" : "text-editorial-muted hover:text-white hover:bg-white/5")}
-               title="Mesa de Direção Cinematográfica"
-             >
-                <Clapperboard className="w-5 h-5" />
-             </button>
-           </div>
+            {/* Project Info */}
+            <div className="flex items-center gap-4 bg-white/[0.03] border border-white/5 px-4 py-2 rounded-2xl">
+              <div className="w-10 h-10 bg-editorial-accent/20 rounded-xl flex items-center justify-center text-editorial-accent border border-editorial-accent/20">
+                 <PenTool className="w-5 h-5" />
+              </div>
+              <div>
+                 <h4 className="text-[10px] font-black uppercase tracking-widest text-[#EAEAEA]">{project.title}</h4>
+                 <p className="text-[8px] font-bold text-white/20 uppercase tracking-tighter">Projeto ativo</p>
+              </div>
+            </div>
 
-           <div className="mt-auto flex flex-col gap-4">
-              <button 
-                onClick={() => setIsZenMode(true)}
-                className="p-4 text-editorial-muted hover:text-editorial-accent transition-all hover:bg-white/5 rounded-2xl"
-                title="Modo Imersão Total"
-              >
-                 <Maximize2 className="w-5 h-5" />
-              </button>
-              <button 
-                onClick={() => handleTabChange('settings')}
-                className={cn("p-4 rounded-2xl transition-all", activeTab === 'settings' ? "text-editorial-accent bg-white/5 shadow-neon" : "text-editorial-muted hover:text-white hover:bg-white/5")}
-              >
-                 <Settings2 className="w-5 h-5" />
-              </button>
-           </div>
+            {/* Chapter Save Info */}
+            <div className="flex flex-col">
+               <h4 className="text-[10px] font-black uppercase tracking-widest text-[#EAEAEA]">
+                 {chapters.find(c => c.id === activeChapterId)?.title || "PÁGINA 1"}
+               </h4>
+               <p className="text-[8px] font-bold text-white/20 uppercase tracking-tighter">Sincronizado</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-6">
+             <div className="flex items-center gap-3 bg-white/[0.03] border border-white/5 px-4 py-2 rounded-2xl cursor-pointer">
+                <span className="text-[8px] font-black uppercase tracking-widest text-white/40">Versão Atual</span>
+                <span className="text-[9px] font-bold text-white/80">v1.4.2</span>
+                <ChevronRight className="w-3 h-3 text-white/20 rotate-90" />
+             </div>
+
+             <div className="w-10 h-10 rounded-full border border-white/10 overflow-hidden cursor-pointer hover:border-editorial-accent transition-all">
+                <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${auth.currentUser?.email}`} alt="Avatar" className="w-full h-full object-cover" />
+             </div>
+
+             <button className="p-2 text-white/20 hover:text-white transition-colors">
+                <Users className="w-5 h-5" />
+             </button>
+
+             <button className="bg-gradient-to-r from-editorial-accent to-[#C084FC] text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-neon hover:scale-105 active:scale-95 transition-all">
+                <Sparkles className="w-3.5 h-3.5 inline-block mr-2" /> Publicar Página
+             </button>
+          </div>
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0">
-        {!isZenMode && (
-          <div className="flex items-center justify-between px-10 py-5 border-b border-white/5 bg-editorial-sidebar/50 backdrop-blur-xl z-30">
-            <div className="flex items-center gap-6 text-[9px] font-black text-editorial-muted uppercase tracking-[0.2em]">
-              {activeTab === 'writing' && (
-                <>
-                  {saveStatus === 'saving' && (
-                    <span className="flex items-center gap-2 text-editorial-accent"><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Transmitindo...</span>
-                  )}
-                  {saveStatus === 'saved' && (
-                    <span className="flex items-center gap-2 text-white/40"><CheckCircle2 className="w-3.5 h-3.5 text-green-500" /> Sincronizado</span>
-                  )}
-                  {saveStatus === 'error' && (
-                    <span className="flex items-center gap-2 text-red-500"><AlertCircle className="w-3.5 h-3.5" /> Ruptura na Matriz</span>
-                  )}
-                  <div className="h-4 w-px bg-white/5" />
-                  <span className="flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> {content.split(/\s+/).filter(x => x).length} Glifos</span>
-                  <div className="h-4 w-px bg-white/5" />
-                  <span className="flex items-center gap-1.5 text-editorial-accent"><Zap className="w-3.5 h-3.5" /> +{sessionWordCount} Inserções</span>
-                </>
-              )}
-            </div>
+      {/* 2. SUBHEADER STATUS BAR */}
+      {!isZenMode && (
+        <div className="h-16 shrink-0 border-b border-white/10 flex items-center justify-between px-10 bg-editorial-bg/40 backdrop-blur-xl z-50">
+          <div className="flex items-center gap-10">
+             <div className="flex items-center gap-3">
+                <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+                <div className="flex flex-col">
+                   <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#EAEAEA]">SINCRONIZADO</span>
+                   <p className="text-[7px] font-bold text-white/20 uppercase tracking-widest leading-none mt-0.5">Offline: pronto</p>
+                </div>
+             </div>
 
-            <div className="flex items-center gap-5">
-              {activeTab === 'writing' && (
-                <>
-                  <div className="flex bg-white/5 rounded-2xl p-1 border border-white/10 glass-panel">
-                     <button 
-                       onClick={() => handleAnalyze('improvements')}
-                       className="flex items-center gap-2 text-editorial-muted px-4 py-2 rounded-xl hover:text-white transition-all font-black text-[9px] uppercase tracking-widest disabled:opacity-50"
-                       title="Polimento de Estilo"
-                     >
-                       <Lightbulb className="w-3.5 h-3.5" /> PROSA
-                     </button>
-                     <button 
-                       onClick={() => handleAnalyze('show-don-t-tell')}
-                       className="flex items-center gap-2 text-editorial-muted px-4 py-2 rounded-xl hover:text-white transition-all font-black text-[9px] uppercase tracking-widest disabled:opacity-50"
-                       title="Imersão Sensorial"
-                     >
-                       <Eye className="w-3.5 h-3.5" /> VISÃO
-                     </button>
-                     <button 
-                       onClick={() => handleAnalyze('consistency')}
-                       className="flex items-center gap-2 text-editorial-muted px-4 py-2 rounded-xl hover:text-white transition-all font-black text-[9px] uppercase tracking-widest disabled:opacity-50"
-                       title="Nexo Narrativo"
-                     >
-                       <AlertCircle className="w-3.5 h-3.5" /> NEXO
-                     </button>
-                  </div>
-
-                  <div className="w-px h-8 bg-white/5 mx-1" />
-                  
-                  <button
-                    onClick={() => setIsScriptMode(!isScriptMode)}
-                    className={cn(
-                      "flex items-center gap-3 px-6 py-2.5 rounded-2xl transition-all font-black text-[9px] uppercase tracking-widest border",
-                      isScriptMode ? "bg-editorial-accent text-white border-editorial-accent shadow-neon" : "bg-white/5 text-editorial-muted border-white/10 hover:text-white"
-                    )}
-                  >
-                    <Clapperboard className="w-4 h-4" /> {isScriptMode ? "Modo Roteiro" : "Modo Prosa"}
-                  </button>
-
-                  <button
-                    onClick={handleAiAssist}
-                    disabled={isAiLoading}
-                    className="flex items-center gap-3 bg-editorial-accent text-white px-8 py-2.5 rounded-2xl hover:scale-105 active:scale-95 transition-all font-black text-[10px] uppercase tracking-widest disabled:opacity-50 shadow-neon"
-                  >
-                    <Wand2 className={cn("w-4 h-4", isAiLoading && "animate-spin")} />
-                    Assistente
-                  </button>
-                </>
-              )}
-            </div>
+             <div className="flex items-center gap-8 text-[9px] font-black uppercase tracking-[0.2em]">
+                <div className="flex items-center gap-2 text-white/40">
+                   <FileText className="w-3.5 h-3.5" />
+                   <span><span className="text-white">1.561</span> PALAVRAS</span>
+                </div>
+                <div className="flex items-center gap-2 text-white/40">
+                   <Users className="w-3.5 h-3.5" />
+                   <span><span className="text-white">154</span> PARÁGRAFOS</span>
+                </div>
+                <div className="flex items-center gap-2 text-editorial-accent">
+                   <Sparkles className="w-3.5 h-3.5" />
+                   <span><span className="text-white">+0</span> INSERÇÕES</span>
+                </div>
+             </div>
           </div>
-        )}
 
-        {isZenMode && (
-          <button 
-            onClick={() => setIsZenMode(false)}
-            className="fixed top-8 right-8 p-3 bg-editorial-bg hover:bg-editorial-sidebar rounded-full text-editorial-muted hover:text-editorial-accent transition-all z-50 border border-editorial-border"
-          >
-            <Minimize2 className="w-5 h-5" />
-          </button>
-        )}
+          <div className="flex items-center gap-4">
+             {/* Mode Switchers */}
+             <div className="flex bg-[#1a1a1a] rounded-2xl p-1 border border-white/5">
+                <button 
+                  onClick={() => handleTabChange('writing')}
+                  className={cn("px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all", activeTab === 'writing' ? "bg-editorial-accent/20 text-editorial-accent" : "text-white/20 hover:text-white/40")}
+                >
+                  PROSA
+                </button>
+                <button className="px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-white/20 hover:text-white/40">VISÃO</button>
+                <button className="px-6 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-white/20 hover:text-white/40">NEXO</button>
+             </div>
 
-        <div className="flex-1 overflow-hidden relative bg-[#0D0D0D]">
-          <AnimatePresence mode="wait">
-            {activeTab === 'lore' && (
-              <motion.div
-                key="lore"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="h-full bg-editorial-bg"
-              >
-                <LoreManager project={project} chapters={chapters} initialAssistantOpen={architectMode} />
-              </motion.div>
-            )}
+             <div className="w-px h-6 bg-white/5 mx-2" />
 
-            {activeTab === 'writing' && (
-              <motion.div
-                key="writing"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="h-full overflow-y-auto custom-scrollbar flex flex-col relative"
-              >
-                <div className="max-w-[1000px] mx-auto w-full px-12 md:px-20 py-20 min-h-full flex flex-col">
-                  {/* Floating Chapter Title */}
-                  <div className="mb-16 flex items-center justify-between group">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-3">
-                         <span className="text-[9px] font-black text-editorial-accent uppercase tracking-[0.4em]">Seção Atual</span>
-                         {chapters.find(c => c.id === activeChapterId)?.ambientAudioUrl && (
-                           <motion.div 
-                             animate={{ scale: [1, 1.2, 1] }}
-                             transition={{ duration: 2, repeat: Infinity }}
-                             className="flex items-center gap-1.5 bg-editorial-accent/20 px-2 py-0.5 rounded-full border border-editorial-accent/30"
-                           >
-                             <Music className="w-2.5 h-2.5 text-editorial-accent" />
-                             <span className="text-[7px] font-black uppercase text-editorial-accent">Imersão Sonora Ativa</span>
-                           </motion.div>
-                         )}
+             <button className="flex items-center gap-2 px-5 py-3 rounded-2xl bg-white/[0.03] border border-white/5 text-[9px] font-black uppercase tracking-widest text-white/40 hover:text-white transition-all">
+                <Book className="w-3.5 h-3.5" /> MODO PROSA <ChevronRight className="w-3 h-3 rotate-90" />
+             </button>
+
+             <button 
+               onClick={() => setShowChat(!showChat)}
+               className={cn(
+                 "flex items-center gap-2 px-6 py-3 rounded-2xl text-[9px] font-black uppercase tracking-widest transition-all border shadow-neon-small",
+                 showChat ? "bg-editorial-accent text-white border-editorial-accent" : "bg-editorial-accent/10 text-editorial-accent border-editorial-accent/20"
+               )}
+             >
+                <Sparkles className="w-3.5 h-3.5" /> Assistente IA
+             </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* 4. MAIN CONTENT AREA */}
+        <div className="flex-1 overflow-hidden relative flex flex-col">
+          <div className="flex-1 overflow-y-auto custom-scrollbar bg-[#080808]">
+            <AnimatePresence mode="wait">
+              {activeTab === 'writing' && (
+                <motion.div
+                  key="writing"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="max-w-[850px] mx-auto w-full px-12 py-20 min-h-full flex flex-col"
+                >
+                  {/* Editor Header */}
+                  <div className="mb-10 space-y-4">
+                      {activeChapterId && (
+                        <>
+                      <div className="flex items-center justify-between group/title">
+                        <div className="flex flex-col gap-2">
+                           <h2 
+                            onClick={() => {
+                              const current = chapters.find(c => c.id === activeChapterId);
+                              if (current) handleRenameChapter(activeChapterId, current.title);
+                            }}
+                            className="text-6xl font-brand text-editorial-accent tracking-[0.2em] uppercase leading-none cursor-pointer hover:text-white transition-all underline decoration-editorial-accent/20 decoration-dashed underline-offset-8"
+                          >
+                            {chapters.find(c => c.id === activeChapterId)?.title || "PÁGINA"}
+                          </h2>
+                          {(chapters.find(c => c.id === activeChapterId)?.subtitle) && (
+                            <p className="text-xl font-serif italic text-white/30 tracking-wide">
+                              {chapters.find(c => c.id === activeChapterId)?.subtitle}
+                            </p>
+                          )}
+                        </div>
+                        <button 
+                          onClick={() => {
+                            const current = chapters.find(c => c.id === activeChapterId);
+                            if (current) handleRenameChapter(activeChapterId, current.title);
+                          }}
+                          className="p-3 bg-white/5 rounded-full opacity-0 group-hover/title:opacity-100 transition-all hover:bg-editorial-accent hover:text-white"
+                        >
+                           <Settings2 className="w-4 h-4" />
+                        </button>
                       </div>
-                      <h2 
-                        onClick={() => {
-                          const cap = chapters.find(c => c.id === activeChapterId);
-                          if (cap) handleRenameChapter(cap.id, cap.title);
-                        }}
-                        className="text-4xl md:text-5xl font-brand text-editorial-accent tracking-widest cursor-pointer hover:opacity-80 transition-all uppercase"
-                      >
-                        {chapters.find(c => c.id === activeChapterId)?.title || "Untitled Codex"}
-                      </h2>
-                    </div>
-                    
-                    <div className="flex bg-white/5 rounded-2xl p-1 border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity">
-                       <button onClick={handleUndo} disabled={undoStack.length === 0} className="p-3 text-editorial-muted hover:text-white disabled:opacity-20 transition-all"><RotateCcw className="w-5 h-5" /></button>
-                       <button onClick={handleRedo} disabled={redoStack.length === 0} className="p-3 text-editorial-muted hover:text-white disabled:opacity-20 transition-all"><RotateCw className="w-5 h-5" /></button>
-                       <div className="w-px h-6 bg-white/10 my-auto mx-1" />
-                       <button onClick={() => insertTemplate(project.type === 'manga' ? 'panel' : 'scene')} className="p-3 text-editorial-muted hover:text-white transition-all" title="Inserir Matriz"><Layers className="w-5 h-5" /></button>
-                    </div>
+                          
+                          <div className="flex items-center gap-3">
+                             <div className="flex items-center gap-2">
+                                <Layers className="w-3.5 h-3.5 text-editorial-accent/40" />
+                                <span className="text-[10px] font-black uppercase tracking-[0.4em] text-white/20">
+                                   {chapters.find(c => c.id === activeChapterId)?.groupTitle || "Página Avulsa"}
+                                </span>
+                             </div>
+                             <div className="h-px w-12 bg-white/5" />
+                          </div>
+
+                          <input 
+                            type="text" 
+                            placeholder="Adicione um subtítulo opcional..."
+                            value={chapters.find(c => c.id === activeChapterId)?.subtitle || ''}
+                            onChange={(e) => handleUpdatePageMetadata(activeChapterId, 'subtitle', e.target.value)}
+                            className="bg-transparent border-none p-0 outline-none w-full text-white/40 text-lg font-medium placeholder:text-white/10 italic tracking-wide"
+                          />
+                        </>
+                      )}
                   </div>
 
+                  {/* Toolbar */}
+                  <div className="flex items-center gap-1 bg-[#151515] border border-white/5 rounded-2xl p-1 mb-10 w-fit">
+                     <button className="p-3 text-white/40 hover:text-white transition-all flex items-center justify-center gap-2">
+                        <FileText className="w-4 h-4" /> 
+                        <span className="text-[9px] font-black uppercase">Normal</span> 
+                        <ChevronRight className="w-3 h-3 rotate-90" />
+                     </button>
+                     <div className="w-px h-6 bg-white/5 mx-1" />
+                     <button className="p-3 text-white/40 hover:text-white transition-all"><span className="font-bold text-sm">B</span></button>
+                     <button className="p-3 text-white/40 hover:text-white transition-all italic text-sm">I</button>
+                     <button className="p-3 text-white/40 hover:text-white transition-all underline text-sm">U</button>
+                     <div className="w-px h-6 bg-white/5 mx-1" />
+                     <button onClick={() => setShowManuscript(!showManuscript)} className="p-3 text-white/40 hover:text-white transition-all"><Book className="w-4 h-4" /></button>
+                     <button onClick={() => setShowAudit(!showAudit)} className="p-3 text-white/40 hover:text-white transition-all"><BarChart3 className="w-4 h-4" /></button>
+                     <div className="w-px h-6 bg-white/5 mx-1" />
+                     <button onClick={handleAiAssist} className="p-3 text-editorial-accent hover:text-white transition-all"><Sparkles className="w-4 h-4" /></button>
+                     <button onClick={() => handleAnalyze('improvements')} className="p-3 text-editorial-accent hover:text-white transition-all"><Wand2 className="w-4 h-4" /></button>
+                     <div className="w-px h-8 bg-white/10 mx-2" />
+                     <button onClick={() => setIsZenMode(!isZenMode)} className={cn("p-3 transition-all", isZenMode ? "text-editorial-accent" : "text-white/10 hover:text-white")}>
+                        {isZenMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                     </button>
+                     <button onClick={handleUndo} className="p-3 text-white/10 hover:text-white transition-all"><RotateCcw className="w-4 h-4" /></button>
+                     <button onClick={handleRedo} className="p-3 text-white/10 hover:text-white transition-all"><RotateCw className="w-4 h-4" /></button>
+                  </div>
+
+                  {/* Main Textarea */}
                   <div className="relative flex-1">
-                    {/* Ghost Text Overlay for Autocomplete */}
-                    <div 
-                      className={cn(
-                        "absolute inset-0 pointer-events-none text-transparent z-0 whitespace-pre-wrap break-words",
-                        isZenMode ? "text-2xl leading-relaxed" : "text-lg leading-loose",
-                        isScriptMode || project.type === 'manga' ? "font-mono tracking-tight" : "font-sans font-light"
-                      )}
-                      aria-hidden="true"
-                    >
-                      {content}
-                      <span className="text-editorial-accent/40 bg-editorial-accent/10 px-0.5 rounded">
-                        {autocomplete}
-                      </span>
-                    </div>
-
                     <textarea
-                      ref={textareaRef}
-                      value={content}
-                      onChange={(e) => {
-                        updateContentWithUndo(e.target.value);
-                        e.target.style.height = 'auto';
-                        e.target.style.height = (e.target.scrollHeight) + 'px';
-                      }}
-                      onKeyDown={handleKeyDown}
-                      onSelect={handleSelection}
-                      spellCheck={false}
-                      placeholder={isScriptMode ? "CENA 1 - INTERIOR..." : "Sua alma aguarda a primeira palavra..."}
-                      className={cn(
-                        "w-full resize-none border-none focus:ring-0 text-[#D1D1D1] p-0 placeholder:text-white/10 bg-transparent selection:bg-editorial-accent/30 transition-all min-h-[60vh] relative z-10 whitespace-pre-wrap break-words",
-                        isZenMode ? "text-2xl leading-relaxed" : "text-lg leading-loose font-sans",
-                        isScriptMode ? "font-mono text-base leading-7 bg-white/2 p-12 rounded-[40px] border border-white/5" : "font-sans font-light",
-                        project.type === 'manga' && !isScriptMode && "font-mono text-sm leading-8 bg-white/2 p-10 rounded-[40px] border border-white/5"
+                        ref={textareaRef}
+                        value={content}
+                        onSelect={handleSelection}
+                        onKeyDown={handleKeyDown}
+                        onChange={(e) => {
+                          updateContentWithUndo(e.target.value);
+                          e.target.style.height = 'auto';
+                          e.target.style.height = (e.target.scrollHeight) + 'px';
+                        }}
+                        placeholder="Escreva algo grandioso..."
+                        className="w-full resize-none border-none focus:ring-0 text-[#EAEAEA]/80 p-0 placeholder:text-white/5 bg-transparent leading-[2.6] text-xl font-medium tracking-wide selection:bg-editorial-accent/30 transition-all min-h-[50vh] custom-scrollbar"
+                      />
+                      {autocomplete && (
+                        <div className="absolute top-0 left-0 pointer-events-none opacity-20 text-xl leading-[2.6] font-medium tracking-wide whitespace-pre-wrap">
+                          {content}<span className="text-editorial-accent">{autocomplete}</span>
+                        </div>
                       )}
-                    />
                   </div>
 
-                  {/* Navigator Footer */}
-                  <div className="mt-32 pb-32 border-t border-white/5 pt-16 flex items-center justify-between">
-                     {chapters.indexOf(chapters.find(c => c.id === activeChapterId)!) > 0 ? (
-                        <button 
-                          onClick={() => {
-                            const idx = chapters.indexOf(chapters.find(c => c.id === activeChapterId)!);
-                            handleChapterSwitch(chapters[idx - 1].id);
-                          }}
-                          className="flex flex-col items-start group"
-                        >
-                           <span className="text-[9px] font-black text-editorial-muted group-hover:text-editorial-accent mb-2 uppercase tracking-[0.3em] flex items-center gap-2">
-                              <ChevronRight className="w-4 h-4 rotate-180" /> REGISTRO ANTERIOR
-                           </span>
-                           <span className="text-xl font-brand text-white/40 group-hover:text-white transition-all uppercase tracking-widest">
-                              {chapters[chapters.indexOf(chapters.find(c => c.id === activeChapterId)!) - 1]?.title}
-                           </span>
-                        </button>
-                     ) : <div />}
-
-                     {chapters.indexOf(chapters.find(c => c.id === activeChapterId)!) < chapters.length - 1 ? (
-                        <button 
-                          onClick={() => {
-                            const idx = chapters.indexOf(chapters.find(c => c.id === activeChapterId)!);
-                            handleChapterSwitch(chapters[idx + 1].id);
-                          }}
-                          className="flex flex-col items-end group text-right"
-                        >
-                           <span className="text-[9px] font-black text-editorial-muted group-hover:text-editorial-accent mb-2 uppercase tracking-[0.3em] flex items-center gap-2">
-                              PRÓXIMO REGISTRO <ChevronRight className="w-4 h-4" />
-                           </span>
-                           <span className="text-xl font-brand text-white/40 group-hover:text-white transition-all uppercase tracking-widest">
-                              {chapters[chapters.indexOf(chapters.find(c => c.id === activeChapterId)!) + 1]?.title}
-                           </span>
-                        </button>
-                     ) : (
-                        <button 
-                          onClick={() => handleCreateChapter()}
-                          className="flex items-center gap-3 bg-editorial-accent text-white px-10 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:scale-105 transition-all shadow-neon"
-                        >
-                           <Plus className="w-5 h-5" /> Iniciar Próximo Destino
-                        </button>
-                     )}
+                  {/* Bottom Stats inside Editor */}
+                  <div className="mt-20 flex items-center justify-between border-t border-white/5 pt-6 text-[9px] font-black uppercase text-white/20 tracking-widest">
+                     <div className="flex gap-6">
+                        <span>{content.split(/\s+/).filter(x => x).length} palavras</span>
+                        <span>•</span>
+                        <span>{content.split('\n').filter(x => x.trim()).length} parágrafos</span>
+                        <span>•</span>
+                        <span>{content.length} caracteres</span>
+                     </div>
+                     <div className="flex items-center gap-4">
+                        <span>Sincronia Cerebral (IA)</span>
+                        <div className="w-40 h-1.5 bg-white/5 border border-white/5 rounded-full overflow-hidden">
+                           <div className="h-full bg-editorial-accent transition-all shadow-neon-small" style={{ width: '65%' }} />
+                        </div>
+                     </div>
                   </div>
-                </div>
-              </motion.div>
-            )}
+                </motion.div>
+              )}
 
-            {activeTab === 'visual' && (
-              <motion.div
-                key="visual"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="h-full bg-[#0D0D0D] flex flex-col"
-              >
-                <div className="px-12 py-5 border-b border-white/5 bg-editorial-sidebar/50 flex gap-12">
-                   <button 
-                     onClick={() => setVisualSubTab('characters')}
-                     className={cn(
-                       "text-[10px] font-black uppercase tracking-[0.3em] pb-4 border-b-2 transition-all",
-                       visualSubTab === 'characters' ? "border-editorial-accent text-editorial-accent shadow-neon" : "border-transparent text-editorial-muted hover:text-white"
-                     )}
-                   >
-                     Galeria de Matrizes (Personagens)
-                   </button>
-                   <button 
-                     onClick={() => setVisualSubTab('art')}
-                     className={cn(
-                       "text-[10px] font-black uppercase tracking-[0.3em] pb-4 border-b-2 transition-all",
-                       visualSubTab === 'art' ? "border-editorial-accent text-editorial-accent shadow-neon" : "border-transparent text-editorial-muted hover:text-white"
-                     )}
-                   >
-                     Referências Visuais & Layout
-                   </button>
-                </div>
-                <div className="flex-1 overflow-hidden">
-                  {visualSubTab === 'characters' ? (
-                    <CharacterList project={project} chapters={chapters} />
-                  ) : (
-                    <VisualManager project={project} mode="gallery" />
-                  )}
-                </div>
-              </motion.div>
-            )}
+              {activeTab === 'visual' && (
+                <motion.div
+                  key="visual"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="h-full"
+                >
+                  <VisualManager project={project} characters={characters} onSwitchToDirector={() => setShowDirector(true)} />
+                </motion.div>
+              )}
 
-            {activeTab === 'settings' && (
-              <motion.div
-                key="settings"
-                initial={{ opacity: 0, scale: 0.98 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="h-full p-20 max-w-4xl mx-auto space-y-16 overflow-y-auto custom-scrollbar"
-              >
-                 <div className="space-y-4">
+              {activeTab === 'lore' && (
+                <motion.div
+                  key="lore"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="h-full"
+                >
+                  <LoreManager project={project} />
+                </motion.div>
+              )}
+
+              {activeTab === 'settings' && (
+                <motion.div
+                  key="settings"
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  className="h-full p-20 max-w-4xl mx-auto space-y-16 overflow-y-auto custom-scrollbar"
+                >
+                  <div className="space-y-4">
                     <h3 className="text-6xl font-brand text-editorial-accent uppercase tracking-widest">Protocolos da Obra</h3>
-                    <p className="text-editorial-muted text-[10px] font-black uppercase tracking-[0.4em]">Configurações Fundamentais da Matriz</p>
-                 </div>
+                    <p className="text-[#EAEAEA]/20 text-[10px] font-black uppercase tracking-[0.4em]">Configurações Fundamentais da Matriz</p>
+                  </div>
 
-                 <div className="space-y-12 pb-20">
+                  <div className="space-y-12 pb-20">
                     {!project.universeId && (
                       <div className="bg-editorial-accent/5 border border-editorial-accent/20 rounded-[40px] p-12 relative overflow-hidden group">
                          <div className="absolute top-0 right-0 w-64 h-64 bg-editorial-accent/10 blur-[100px] transition-all group-hover:scale-150" />
@@ -1054,32 +1028,26 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
                     )}
 
                     <div className="flex flex-col gap-3">
-                       <label className="text-[10px] font-black uppercase tracking-widest text-editorial-muted">Identidade do Volume</label>
+                       <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Identidade do Volume</label>
                        <input 
                          type="text" 
                          placeholder="Título principal"
                          value={projectMetadata.title} 
                          onChange={(e) => setProjectMetadata(prev => ({ ...prev, title: e.target.value }))}
-                         className="bg-white border border-editorial-border rounded-2xl py-4 px-6 outline-none focus:border-editorial-accent transition-all text-xl font-serif"
-                       />
-                       <input 
-                         type="text" 
-                         placeholder="Subtítulo ou Volume (Ex: Livro I: O Despertar)"
-                         value={projectMetadata.subtitle} 
-                         onChange={(e) => setProjectMetadata(prev => ({ ...prev, subtitle: e.target.value }))}
-                         className="bg-white border border-editorial-border rounded-2xl py-3 px-6 outline-none focus:border-editorial-accent transition-all text-sm font-serif italic"
+                         className="bg-white/5 border border-white/10 rounded-2xl py-4 px-6 outline-none focus:border-editorial-accent transition-all text-xl text-white"
                        />
                     </div>
+                    
                     <div className="flex flex-col gap-3">
-                       <label className="text-[10px] font-black uppercase tracking-widest text-editorial-muted">Formato da Narrativa</label>
+                       <label className="text-[10px] font-black uppercase tracking-widest text-white/40">Formato da Narrativa</label>
                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
-                          {['novel', 'manga', 'script', 'comic', 'rpg', 'lore'].map(type => (
+                          {['novel', 'manga', 'script', 'comic'].map(type => (
                              <button 
                                key={type}
                                onClick={() => setProjectMetadata(prev => ({ ...prev, type: type as any }))}
                                className={cn(
                                  "py-4 rounded-xl border font-bold text-[10px] uppercase tracking-widest transition-all",
-                                 projectMetadata.type === type ? "bg-editorial-accent text-white border-editorial-accent" : "bg-white text-editorial-muted border-editorial-border hover:bg-gray-50"
+                                 projectMetadata.type === type ? "bg-editorial-accent text-white border-editorial-accent" : "bg-white/5 text-white/20 border-white/10 hover:bg-white/10"
                                )}
                              >
                                 {type}
@@ -1087,27 +1055,82 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
                           ))}
                        </div>
                     </div>
-                 </div>
+                  </div>
 
-                 <div className="pt-10 border-t border-editorial-border flex justify-between">
+                  <div className="pt-10 border-t border-white/5 flex justify-between">
                     <button 
                       onClick={handleDeleteProject}
-                      className="flex items-center gap-2 text-red-500 font-bold text-[10px] uppercase tracking-widest hover:italic"
+                      className="flex items-center gap-2 text-red-500 font-bold text-[10px] uppercase tracking-widest hover:opacity-80"
                     >
                        <Trash2 className="w-4 h-4" /> Destruir Manuscrito
                     </button>
                     <button 
                       onClick={handleUpdateProjectMetadata}
-                      className="bg-editorial-accent text-white px-10 py-3 rounded-full font-bold text-[10px] uppercase tracking-widest shadow-lg shadow-black/10 hover:opacity-90 transition-all"
+                      className="bg-editorial-accent text-white px-10 py-3 rounded-full font-bold text-[10px] uppercase tracking-widest shadow-neon hover:opacity-90 transition-all"
                     >
                        {saveStatus === 'saving' ? 'Sincronizando...' : 'Preservar Alterações'}
                     </button>
-                 </div>
-              </motion.div>
-             )}
-           </AnimatePresence>
-         </div>
-       </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* 5. BOTTOM NAVIGATION BAR */}
+          {!isZenMode && (
+            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-[70]">
+               <div className="flex items-center gap-1 bg-[#101010]/80 backdrop-blur-3xl border border-white/10 rounded-[32px] p-1.5 shadow-2xl">
+                  <button 
+                    onClick={() => handleTabChange('writing')}
+                    className={cn("px-8 py-4 rounded-[24px] flex items-center gap-3 transition-all", activeTab === 'writing' ? "bg-editorial-accent/10 border border-editorial-accent/30 text-editorial-accent shadow-neon-small" : "text-white/20 hover:text-white/40")}
+                  >
+                     <PenTool className="w-4 h-4" />
+                     <span className="text-[10px] font-black uppercase tracking-widest">Escrita</span>
+                  </button>
+                  <button 
+                    onClick={() => handleTabChange('visual')}
+                    className={cn("px-8 py-4 rounded-[24px] flex items-center gap-3 transition-all", activeTab === 'visual' ? "bg-editorial-accent/10 border border-editorial-accent/30 text-editorial-accent shadow-neon-small" : "text-white/20 hover:text-white/40")}
+                  >
+                     <Users className="w-4 h-4" />
+                     <span className="text-[10px] font-black uppercase tracking-widest">Personagens</span>
+                  </button>
+                  <button 
+                    onClick={() => handleTabChange('lore')}
+                    className={cn("px-8 py-4 rounded-[24px] flex items-center gap-3 transition-all", activeTab === 'lore' ? "bg-editorial-accent/10 border border-editorial-accent/30 text-editorial-accent shadow-neon-small" : "text-white/20 hover:text-white/40")}
+                  >
+                     <Globe className="w-4 h-4" />
+                     <span className="text-[10px] font-black uppercase tracking-widest">Mundo</span>
+                  </button>
+                  <button onClick={() => setShowDirector(true)} className="px-8 py-4 rounded-[24px] flex items-center gap-3 text-white/20 hover:text-white/40 transition-all">
+                     <Clapperboard className="w-4 h-4" />
+                     <span className="text-[10px] font-black uppercase tracking-widest">Direção</span>
+                  </button>
+                  <button onClick={() => setShowManuscript(!showManuscript)} className="px-8 py-4 rounded-[24px] flex items-center gap-3 text-white/20 hover:text-white/40 transition-all">
+                     <Book className="w-4 h-4" />
+                     <span className="text-[10px] font-black uppercase tracking-widest">Páginas</span>
+                  </button>
+                  <button 
+                    onClick={() => handleTabChange('settings')}
+                    className={cn("px-8 py-4 rounded-[24px] flex items-center gap-3 transition-all", activeTab === 'settings' ? "bg-editorial-accent/10 border border-editorial-accent/30 text-editorial-accent shadow-neon-small" : "text-white/20 hover:text-white/40")}
+                  >
+                     <Settings2 className="w-4 h-4" />
+                     <span className="text-[10px] font-black uppercase tracking-widest">Ajustes</span>
+                  </button>
+               </div>
+            </div>
+          )}
+        </div>
+
+        {/* 6. RIGHT ASSISTANT PANEL */}
+        <div className={cn("transition-all duration-500 shrink-0 z-50", showChat ? "w-[400px]" : "w-0 overflow-hidden opacity-0")}>
+           <AssistantPanel 
+              project={project} 
+              currentContent={content} 
+              characters={characters}
+              onReplaceContent={(newText) => updateContentWithUndo(newText)}
+            />
+        </div>
+      </div>
 
        <AnimatePresence>
          {showVersions && (
@@ -1167,7 +1190,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
             <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/2">
               <div className="space-y-1">
                  <h3 className="font-brand text-2xl text-editorial-accent tracking-widest uppercase">Codex Manuscrito</h3>
-                 <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/40">Sequenciamento de Capítulos</p>
+                 <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/40">Sequenciamento de Páginas</p>
               </div>
               <button onClick={() => setShowManuscript(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 text-white/40 hover:text-white transition-colors">
                 <X className="w-5 h-5" />
@@ -1179,47 +1202,86 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
                  onClick={() => handleCreateChapter()}
                  className="w-full flex items-center justify-center gap-3 bg-editorial-accent text-white py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:scale-[1.02] shadow-neon transition-all"
                >
-                  <Plus className="w-5 h-5" /> Iniciar Nova Seção
+                  <Plus className="w-5 h-5" /> Nova Página
                </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-4">
-               {chapters.map((cap) => (
-                 <div 
-                   key={cap.id}
-                   onClick={() => handleChapterSwitch(cap.id)}
-                   className={cn(
-                     "group flex items-center gap-5 p-6 rounded-[32px] cursor-pointer transition-all border",
-                     activeChapterId === cap.id ? "bg-white/5 border-editorial-accent shadow-neon-small" : "bg-transparent border-transparent hover:bg-white/2"
-                   )}
-                 >
-                    <GripVertical className="w-4 h-4 text-white/10 group-hover:text-editorial-accent transition-colors" />
-                    <div className="flex-1 overflow-hidden">
-                       <h4 className={cn("font-brand text-lg uppercase tracking-widest truncate", activeChapterId === cap.id ? "text-white" : "text-white/40")}>
-                          {cap.title}
-                       </h4>
-                       <p className="text-[8px] font-black uppercase tracking-widest text-editorial-accent/40">
-                          {cap.content?.split(/\s+/).filter(x => x).length || 0} GLIFOS
-                       </p>
-                    </div>
-                    <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                       <button 
-                         onClick={(e) => { e.stopPropagation(); handleRenameChapter(cap.id, cap.title); }}
-                         className="p-2 text-white/20 hover:text-white rounded-xl hover:bg-white/5 transition-all"
-                         title="Configurações da Seção"
-                       >
-                          <Settings2 className="w-4 h-4" />
-                       </button>
-                       <button 
-                         onClick={(e) => { e.stopPropagation(); handleDeleteChapter(cap.id, cap.title); }}
-                         className="p-2 text-red-500/20 hover:text-red-500 rounded-xl hover:bg-red-500/5 transition-all"
-                         title="Purgar Seção"
-                       >
-                          <Trash2 className="w-4 h-4" />
-                       </button>
-                    </div>
-                 </div>
-               ))}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-8 space-y-12">
+               {Array.from(new Set(chapters.map(c => c.groupTitle?.trim() || "Páginas Avulsas"))).map((group, gIdx) => {
+                 const groupPages = chapters.filter(c => (c.groupTitle?.trim() || "Páginas Avulsas") === group);
+                 const totalWords = groupPages.reduce((acc, p) => acc + (p.content?.split(/\s+/).filter(x => x).length || 0), 0);
+                 
+                 return (
+                   <div key={`group-${group}-${gIdx}`} className="space-y-6">
+                      <div className="flex flex-col gap-4 px-2">
+                         <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                               <Layers className="w-4 h-4 text-editorial-accent shadow-neon-small" />
+                               <span className="text-[11px] font-black uppercase tracking-[0.4em] text-editorial-accent">{group}</span>
+                            </div>
+                            <span className="text-[8px] font-bold text-white/20 uppercase tracking-widest leading-none">{totalWords} GLIFOS TOTAIS</span>
+                         </div>
+                         <div className="flex items-center gap-3">
+                            <span className="text-[8px] font-bold text-white/10 uppercase tracking-widest whitespace-nowrap">
+                               {groupPages.length} SEGMENTOS NARRATIVOS
+                            </span>
+                            <div className="h-px flex-1 bg-gradient-to-r from-white/5 to-transparent" />
+                         </div>
+                      </div>
+                      
+                      <div className="space-y-3">
+                        {groupPages.map((cap) => (
+                           <div 
+                             key={cap.id}
+                             onClick={() => handleChapterSwitch(cap.id)}
+                             className={cn(
+                               "group flex items-center gap-5 p-6 rounded-[32px] cursor-pointer transition-all border",
+                               activeChapterId === cap.id ? "bg-white/5 border-editorial-accent shadow-neon-small" : "bg-transparent border-transparent hover:bg-white/2"
+                             )}
+                           >
+                              <div className={cn(
+                                "w-1 h-10 rounded-full transition-all",
+                                activeChapterId === cap.id ? "bg-editorial-accent" : "bg-white/5 group-hover:bg-white/10"
+                              )} />
+                              <div className="flex-1 overflow-hidden">
+                                 <h4 className={cn("font-brand text-lg uppercase tracking-widest truncate", activeChapterId === cap.id ? "text-white" : "text-white/40")}>
+                                    {cap.title}
+                                 </h4>
+                                 {cap.subtitle && (
+                                   <p className="text-[9px] text-white/20 italic tracking-wider truncate mb-1">{cap.subtitle}</p>
+                                 )}
+                                 <div className="flex items-center gap-3 mt-1">
+                                    <p className="text-[8px] font-black uppercase tracking-widest text-editorial-accent/40">
+                                       {cap.content?.split(/\s+/).filter(x => x).length || 0} GLIFOS
+                                    </p>
+                                    <div className="w-1 h-1 rounded-full bg-white/10" />
+                                    <p className="text-[8px] font-black uppercase tracking-widest text-white/10">
+                                       {cap.updatedAt?.toDate() ? formatDate(cap.updatedAt.toDate()) : "SINCR"}
+                                    </p>
+                                 </div>
+                              </div>
+                              <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                 <button 
+                                   onClick={(e) => { e.stopPropagation(); handleRenameChapter(cap.id, cap.title); }}
+                                   className="p-2 text-white/20 hover:text-white rounded-xl hover:bg-white/5 transition-all"
+                                   title="Configurações da Página"
+                                 >
+                                    <Settings2 className="w-4 h-4" />
+                                 </button>
+                                 <button 
+                                   onClick={(e) => { e.stopPropagation(); handleDeleteChapter(cap.id, cap.title); }}
+                                   className="p-2 text-red-500/20 hover:text-red-500 rounded-xl hover:bg-red-500/5 transition-all"
+                                   title="Purgar Página"
+                                 >
+                                    <Trash2 className="w-4 h-4" />
+                                 </button>
+                              </div>
+                           </div>
+                         ))}
+                      </div>
+                   </div>
+                 );
+               })}
             </div>
           </motion.div>
         )}
@@ -1332,28 +1394,6 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
                 )}
              </div>
           </motion.div>
-        )}
-
-        {showChat && activeTab === 'writing' && (
-          <motion.div
-            initial={{ x: 300, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: 300, opacity: 0 }}
-            className="w-96 border-l border-white/5 bg-editorial-sidebar flex flex-col shrink-0 shadow-2xl relative z-40"
-          >
-             <div className="p-8 border-b border-white/5 flex items-center justify-between bg-white/2">
-                <div className="space-y-1">
-                   <h3 className="font-brand text-2xl text-editorial-accent tracking-widest uppercase">Oráculo da Musa</h3>
-                   <p className="text-[9px] font-black uppercase tracking-[0.2em] text-white/40">Interface de Co-Criação</p>
-                </div>
-                <button onClick={() => setShowChat(false)} className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 text-white/40 hover:text-white transition-colors">
-                  <X className="w-5 h-5" />
-                </button>
-             </div>
-             <div className="flex-1 overflow-hidden">
-                <AIChat project={project} currentContent={content} />
-             </div>
-           </motion.div>
         )}
 
         {showAudit && (

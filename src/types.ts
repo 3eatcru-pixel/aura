@@ -108,8 +108,10 @@ export interface ChatMessage {
 export interface Chapter {
   id: string;
   title: string;
+  subtitle?: string;
   content: string;
   order: number;
+  groupTitle?: string; // Título do Capítulo (Agrupador de Páginas)
   ambientAudioUrl?: string; // Para trilha sonora/ambiance do capítulo
   updatedAt: any;
   createdAt: any;

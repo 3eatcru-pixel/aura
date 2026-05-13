@@ -93,7 +93,7 @@ export function ScheduleManager({ project }: ScheduleManagerProps) {
                 <input
                   required
                   type="text"
-                  placeholder="Ex: Alvorecer do Capítulo 1, O Crepúsculo da Revisão..."
+                  placeholder="Ex: Alvorecer da Página 1, O Crepúsculo da Revisão..."
                   value={formData.title}
                   onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                   className="bg-editorial-sidebar border border-editorial-border rounded-xl py-4 px-5 outline-none focus:border-editorial-accent transition-all text-sm"

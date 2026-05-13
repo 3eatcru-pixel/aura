@@ -192,10 +192,19 @@ export function CharacterList({ project, chapters = [] }: CharacterListProps) {
 
   const saveDetected = async (char: Partial<Character>) => {
     try {
-      await addDoc(collection(db, 'projects', project.id, 'characters'), {
-        ...char,
-        updatedAt: serverTimestamp(),
-      });
+      const existing = characters.find(c => c.name.toLowerCase().trim() === char.name?.toLowerCase().trim());
+      
+      if (existing) {
+        await updateDoc(doc(db, 'projects', project.id, 'characters', existing.id), {
+          description: existing.description + "\n\n" + (char.role ? `[IA] ${char.role}: ` : '') + (char.description || ""),
+          updatedAt: serverTimestamp()
+        });
+      } else {
+        await addDoc(collection(db, 'projects', project.id, 'characters'), {
+          ...char,
+          updatedAt: serverTimestamp(),
+        });
+      }
       setDetectedCharacters(prev => prev.filter(c => c.name !== char.name));
     } catch (err) {
       console.error(err);

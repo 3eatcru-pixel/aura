@@ -55,33 +55,33 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
   }
 
   return (
-    <div className="h-full flex flex-col bg-editorial-paper overflow-hidden text-editorial-accent selection:bg-editorial-highlight">
+    <div className="h-full flex flex-col bg-editorial-paper overflow-hidden text-white selection:bg-editorial-accent/30">
       {/* Header de Controle */}
-      <div className="h-16 border-b border-editorial-border/50 px-8 flex items-center justify-between bg-white/30 backdrop-blur-sm z-20">
+      <div className="h-16 border-b border-white/5 px-8 flex items-center justify-between bg-black/40 backdrop-blur-md z-20">
         <div className="flex items-center gap-4">
           <button 
             onClick={onBack}
-            className="p-2 hover:bg-black/5 rounded-full transition-all"
+            className="p-2 hover:bg-white/5 rounded-full transition-all text-white/40 hover:text-white"
             title="Sair da Leitura"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="h-4 w-px bg-editorial-border" />
-          <h2 className="font-serif italic text-lg truncate max-w-[200px] lg:max-w-md">
+          <div className="h-4 w-px bg-white/10" />
+          <h2 className="font-serif italic text-lg truncate max-w-[200px] lg:max-w-md text-white/90">
             {project.title} 
-            {project.subtitle && <span className="text-editorial-muted non-italic ml-2 opacity-50 border-l border-editorial-border pl-2">{project.subtitle}</span>}
-            <span className="text-editorial-muted non-italic ml-2 opacity-30">&middot; {currentChapter?.title}</span>
+            {project.subtitle && <span className="text-white/20 non-italic ml-2 border-l border-white/10 pl-2">{project.subtitle}</span>}
+            <span className="text-white/10 non-italic ml-2">&middot; {currentChapter?.title}</span>
           </h2>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Controles de Tipografia */}
-          <div className="flex bg-white/50 border border-editorial-border rounded-full p-1 mr-4">
+          <div className="flex bg-black/40 border border-white/5 rounded-full p-1 mr-4">
             <button
                onClick={() => setViewMode('text')}
                className={cn(
                  "p-2 rounded-full transition-all",
-                 viewMode === 'text' ? "bg-editorial-accent text-white" : "text-editorial-muted hover:text-editorial-accent"
+                 viewMode === 'text' ? "bg-editorial-accent text-white shadow-neon-small" : "text-white/20 hover:text-white/40"
                )}
                title="Modo Texto"
             >
@@ -91,7 +91,7 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
                onClick={() => setViewMode('visual')}
                className={cn(
                  "p-2 rounded-full transition-all",
-                 viewMode === 'visual' ? "bg-editorial-accent text-white" : "text-editorial-muted hover:text-editorial-accent"
+                 viewMode === 'visual' ? "bg-editorial-accent text-white shadow-neon-small" : "text-white/20 hover:text-white/40"
                )}
                title="Modo Visual (Storyboard)"
             >
@@ -99,26 +99,26 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
             </button>
           </div>
 
-          <div className="flex bg-white/50 border border-editorial-border rounded-full p-1 mr-4">
+          <div className="flex bg-black/40 border border-white/5 rounded-full p-1 mr-4">
             {(['sm', 'base', 'lg', 'xl'] as const).map((size) => (
               <button
                 key={size}
                 disabled={viewMode === 'visual'}
                 onClick={() => setFontSize(size)}
                 className={cn(
-                  "w-8 h-8 flex items-center justify-center rounded-full transition-all text-xs font-bold",
-                  fontSize === size ? "bg-editorial-accent text-white" : "text-editorial-muted hover:text-editorial-accent",
+                  "w-8 h-8 flex items-center justify-center rounded-full transition-all text-[10px] font-black uppercase tracking-tighter",
+                  fontSize === size ? "bg-editorial-accent text-white shadow-neon-small" : "text-white/20 hover:text-white/40",
                   viewMode === 'visual' && "opacity-20 cursor-not-allowed"
                 )}
               >
-                A
+                {size}
               </button>
             ))}
           </div>
 
           <button
             onClick={() => setIsFullWidth(!isFullWidth)}
-            className="p-2 text-editorial-muted hover:text-editorial-accent transition-all"
+            className="p-2 text-white/20 hover:text-white/40 transition-all"
             title={isFullWidth ? "Centralizar Texto" : "Largura Total"}
           >
             {isFullWidth ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
@@ -140,19 +140,35 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
               exit={{ opacity: 0, y: -20 }}
               className="relative"
             >
-              <div className="text-center mb-20">
-                <span className="text-[10px] font-black uppercase tracking-[0.3em] text-editorial-muted mb-4 block">Capítulo {activeChapterIndex + 1}</span>
-                <h1 className="text-5xl lg:text-6xl font-serif italic mb-8">{currentChapter.title}</h1>
-                <div className="w-24 h-px bg-editorial-border mx-auto mb-8" />
+              <div className="text-center mb-20 space-y-6">
+                <div className="flex items-center justify-center gap-4">
+                  <div className="h-px w-8 bg-white/5" />
+                  <span className="text-[10px] font-black uppercase tracking-[0.6em] text-white/20">
+                    {currentChapter?.groupTitle || "Crônica Singela"}
+                  </span>
+                  <div className="h-px w-8 bg-white/5" />
+                </div>
+                <h1 className="text-6xl lg:text-7xl font-brand text-editorial-accent tracking-widest uppercase leading-tight">
+                  {currentChapter.title}
+                </h1>
+                {currentChapter.subtitle && (
+                  <p className="text-xl lg:text-2xl font-serif italic text-white/40 tracking-wide mt-2">
+                    {currentChapter.subtitle}
+                  </p>
+                )}
+                <div className="flex flex-col items-center gap-4 pt-4">
+                   <div className="w-16 h-px bg-editorial-accent/30" />
+                   <span className="text-[8px] font-black uppercase tracking-[0.4em] text-white/10">Segmento {activeChapterIndex + 1} de {chapters.length}</span>
+                </div>
               </div>
 
               <div className={cn(
-                "font-serif leading-[1.8] text-[#333] whitespace-pre-wrap transition-all",
+                "font-serif leading-[2.6] text-white/80 whitespace-pre-wrap transition-all selection:bg-editorial-accent/40 tracking-wide",
                 fontSizes[fontSize]
               )}>
                 {viewMode === 'text' ? (
                   currentChapter.content || (
-                    <p className="text-editorial-muted italic text-center py-20 opacity-40">Este capítulo não possui conteúdo ainda.</p>
+                    <p className="text-white/10 italic text-center py-20">Este capítulo não possui conteúdo ainda.</p>
                   )
                 ) : (
                   <div className="space-y-12 py-10">
@@ -162,16 +178,16 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
                            <img 
                              src={panel.imageUrl} 
                              alt={panel.title} 
-                             className="w-full rounded-[40px] shadow-2xl border border-editorial-border" 
+                             className="w-full rounded-[40px] shadow-2xl border border-white/5" 
                              referrerPolicy="no-referrer"
                            />
                            <div className="absolute top-6 left-6">
-                              <span className="bg-editorial-accent text-white text-[10px] font-black px-4 py-1.5 rounded-full shadow-lg">#{idx + 1} &middot; {panel.title}</span>
+                              <span className="bg-editorial-accent text-white text-[10px] font-black px-4 py-1.5 rounded-full shadow-neon">#{idx + 1} &middot; {panel.title}</span>
                            </div>
                          </div>
                       </div>
                     )) : (
-                      <div className="text-center py-32 opacity-20">
+                      <div className="text-center py-32 opacity-10">
                          <ImageIcon className="w-16 h-16 mx-auto mb-4" />
                          <p className="font-serif italic text-2xl">Nenhum painel visual mapeado para este projeto.</p>
                       </div>
@@ -181,7 +197,7 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
               </div>
 
               {/* Navegação entre capítulos no final da leitura */}
-              <div className="mt-32 pt-16 border-t border-editorial-border flex items-center justify-between pb-32">
+              <div className="mt-32 pt-16 border-t border-white/5 flex items-center justify-between pb-32">
                 {activeChapterIndex > 0 ? (
                   <button
                     onClick={() => {
@@ -190,10 +206,10 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
                     }}
                     className="flex flex-col items-start group"
                   >
-                    <span className="text-[10px] font-black uppercase tracking-widest text-editorial-muted mb-2 flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/20 mb-2 flex items-center gap-2 group-hover:text-editorial-accent transition-colors">
                        <ChevronLeft className="w-3 h-3" /> Anterior
                     </span>
-                    <span className="font-serif italic text-xl text-editorial-muted group-hover:text-editorial-accent transition-colors">
+                    <span className="font-serif italic text-xl text-white/40 group-hover:text-white transition-colors">
                       {chapters[activeChapterIndex - 1].title}
                     </span>
                   </button>
@@ -207,17 +223,17 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
                     }}
                     className="flex flex-col items-end group text-right"
                   >
-                    <span className="text-[10px] font-black uppercase tracking-widest text-editorial-muted mb-2 flex items-center gap-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-white/20 mb-2 flex items-center gap-2 group-hover:text-editorial-accent transition-colors">
                        Próximo <ChevronRight className="w-3 h-3" />
                     </span>
-                    <span className="font-serif italic text-xl text-editorial-muted group-hover:text-editorial-accent transition-colors">
+                    <span className="font-serif italic text-xl text-white/40 group-hover:text-white transition-colors">
                       {chapters[activeChapterIndex + 1].title}
                     </span>
                   </button>
                 ) : (
                   <div className="text-center w-full">
-                     <Book className="w-8 h-8 text-aura-gold mx-auto mb-4 opacity-30" />
-                     <p className="font-serif italic text-editorial-muted">Fim da crônica atual.</p>
+                     <Book className="w-8 h-8 text-editorial-accent mx-auto mb-4 opacity-20" />
+                     <p className="font-serif italic text-white/20">Fim da crônica atual.</p>
                   </div>
                 )}
               </div>
@@ -236,7 +252,7 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
            <ChevronLeft className="w-5 h-5" />
          </button>
          <div className="flex flex-col items-center min-w-[80px]">
-           <span className="text-[8px] font-black uppercase tracking-widest opacity-50 mb-0.5">Capítulo</span>
+           <span className="text-[8px] font-black uppercase tracking-widest opacity-50 mb-0.5">Página</span>
            <span className="text-xs font-bold tabular-nums">{activeChapterIndex + 1} de {chapters.length}</span>
          </div>
          <button 

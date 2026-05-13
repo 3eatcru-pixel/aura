@@ -10,11 +10,13 @@ import { ImageEditor } from './ImageEditor';
 
 interface VisualManagerProps {
   project: Project;
+  characters?: any[];
+  onSwitchToDirector?: () => void;
   mode?: 'gallery' | 'storyboard';
   key?: string;
 }
 
-export function VisualManager({ project, mode = 'gallery' }: VisualManagerProps) {
+export function VisualManager({ project, characters = [], onSwitchToDirector, mode = 'gallery' }: VisualManagerProps) {
   const [assets, setAssets] = useState<ArtAsset[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState<string | null>(null);
