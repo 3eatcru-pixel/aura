@@ -1,6 +1,68 @@
-import { GoogleGenAI, Type } from "@google/genai";
+// aura/src/services/aiService.ts
+import { AuditReport } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || "" });
+// Helper para limpar e parsear JSON de qualquer modelo (remove blocos Markdown)
+function parseAiResponse(text: string) {
+  try {
+    // Remove blocos de código markdown se presentes (```json ... ``` ou ``` ...)
+    const cleanText = text.replace(/```json|```/g, '').trim();
+    return JSON.parse(cleanText);
+  } catch (e) {
+    console.error("Falha crítica ao parsear resposta da IA. Texto bruto:", text);
+    return null;
+  }
+}
+
+// Helper para obter o provedor preferido do usuário
+function getAiProvider(): 'gemini' | 'gpt' | 'deepseek' {
+  return (localStorage.getItem('aura_ai_provider') as any) || 'gemini';
+}
+
+// Helper genérico para chamar o proxy do servidor para modelos de IA (Gemini, GPT, DeepSeek)
+async function callAiProxy(model: 'gemini' | 'gpt' | 'deepseek', payload: any): Promise<{ text: string }> {
+  const endpoints = {
+    gemini: '/api/ai/gemini-proxy',
+    gpt: '/api/ai/gpt-proxy',
+    deepseek: '/api/ai/deepseek-proxy'
+  };
+  
+  // Recupera chaves privadas do usuário salvas localmente
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (localStorage.getItem('aura_openai_key')) headers['x-user-openai-key'] = localStorage.getItem('aura_openai_key')!;
+  if (localStorage.getItem('aura_deepseek_key')) headers['x-user-deepseek-key'] = localStorage.getItem('aura_deepseek_key')!;
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  });
+  
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || `Erro no Assistente (${model})`);
+  }
+  
+  return await response.json();
+}
+
+// Helper genérico para chamar o proxy do servidor para tradução (DeepL)
+async function callTranslationProxy(payload: any): Promise<{ translatedText: string }> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (localStorage.getItem('aura_deepl_key')) headers['x-user-deepl-key'] = localStorage.getItem('aura_deepl_key')!;
+
+  const response = await fetch('/api/translate/deepl-proxy', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(payload)
+  });
+  
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.error || 'Erro no Tradutor (DeepL)');
+  }
+  
+  return await response.json();
+}
 
 export async function detectCharacters(text: string, existingCharacters: string[]) {
   const prompt = `Analise o seguinte trecho de história e identifique nomes de personagens que aparecem. 
@@ -10,19 +72,9 @@ export async function detectCharacters(text: string, existingCharacters: string[
   Texto: "${text}"`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
-        }
-      }
-    });
-
-    return JSON.parse(response.text || "[]") as string[];
+    const provider = getAiProvider();
+    const data = await callAiProxy(provider, { prompt, messages: [{ role: 'user', content: prompt }] });
+    return parseAiResponse(data.text) || [];
   } catch (error) {
     console.error("Error detecting characters:", error);
     return [];
@@ -45,12 +97,16 @@ export async function getWritingSuggestion(context: string, currentContent: stri
   3. Não explique o que fez, apenas retorne o texto criativo.`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
-    });
-
-    return response.text;
+    const provider = getAiProvider();
+    let data;
+    if (provider === 'gemini') {
+      data = await callAiProxy('gemini', { prompt, model: "gemini-2.0-flash" });
+    } else {
+      data = await callAiProxy(provider, { 
+        messages: [{ role: 'user', content: prompt }] 
+      });
+    }
+    return data.text;
   } catch (error) {
     console.error("Error getting writing suggestion:", error);
     return "";
@@ -96,29 +152,36 @@ export async function analyzeManuscript(content: string, context: string, mode: 
   }
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              id: { type: Type.STRING },
-              type: { type: Type.STRING },
-              originalText: { type: Type.STRING },
-              suggestedText: { type: Type.STRING },
-              explanation: { type: Type.STRING }
-            },
-            required: ["id", "type", "originalText", "suggestedText", "explanation"]
+    const provider = getAiProvider();
+    let data;
+    if (provider === 'gemini') {
+      data = await callAiProxy('gemini', { 
+        prompt,
+        model: "gemini-2.0-flash",
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                type: { type: "string" },
+                originalText: { type: "string" },
+                suggestedText: { type: "string" },
+                explanation: { type: "string" }
+              },
+              required: ["id", "type", "originalText", "suggestedText", "explanation"]
+            }
           }
         }
-      }
-    });
+      });
+    } else {
+      // Para OpenAI/DeepSeek, confiamos no prompt e no parseAiResponse
+      data = await callAiProxy(provider, { messages: [{ role: 'user', content: prompt }] });
+    }
 
-    return JSON.parse(response.text || "[]") as ImprovementSuggestion[];
+    return parseAiResponse(data.text) || [];
   } catch (error) {
     console.error("Error analyzing manuscript:", error);
     return [];
@@ -139,15 +202,14 @@ export async function deepCharacterDesign(name: string, storyContext: string) {
   Retorne um objeto JSON com estas chaves em português: description, traits, goals, fears, vocalTone, history.`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json"
-      }
-    });
-
-    return JSON.parse(response.text || "{}");
+    const provider = getAiProvider();
+    let data;
+    if (provider === 'gemini') {
+      data = await callAiProxy('gemini', { prompt, model: "gemini-2.0-flash", config: { responseMimeType: "application/json" } });
+    } else {
+      data = await callAiProxy(provider, { messages: [{ role: 'user', content: prompt }] });
+    }
+    return parseAiResponse(data.text) || {};
   } catch (error) {
     console.error("Error in deepCharacterDesign:", error);
     return null;
@@ -156,24 +218,27 @@ export async function deepCharacterDesign(name: string, storyContext: string) {
 
 export async function researchTopic(query: string) {
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: `Pesquise sobre o seguinte tópico para um escritor de ficção: ${query}. 
+    const data = await callAiProxy('gemini', { 
+      prompt: `Pesquise sobre o seguinte tópico para um escritor de ficção: ${query}. 
       Forneça fatos interessantes, detalhes sensoriais e informações históricas ou técnicas relevantes que possam enriquecer uma cena.
       Use uma linguagem inspiradora e organizada.`,
+      model: "gemini-2.0-flash",
       config: {
-        tools: [{ googleSearch: {} }]
+        tools: [{ googleSearch: {} }] // Gemini-specific tool
       }
     });
-
-    return response.text;
+    return data.text;
   } catch (error) {
     console.error("Error researching topic:", error);
     return "Não foi possível realizar a pesquisa no momento.";
   }
 }
 
-export async function chatBotResponse(messages: { role: string, text: string }[], projectContext: string) {
+export async function chatBotResponse(
+  messages: { role: string, text: string }[], 
+  projectContext: string,
+  provider: 'gemini' | 'gpt' | 'deepseek' = (localStorage.getItem('aura_ai_provider') as any) || 'gemini'
+) {
   const systemInstruction = `Você é o "Scribe AI", uma inteligência de elite que atua como Diretor Criativo, Arquiteto de UX, Editor Narrativo e Lead QA.
   Sua função é co-criar e auditar o projeto do usuário com um olhar crítico e artístico.
   
@@ -188,20 +253,29 @@ export async function chatBotResponse(messages: { role: string, text: string }[]
   Não seja apenas um assistente passivo; aja como um parceiro de criação de alto nível.`;
 
   try {
-    const formattedMessages = messages.map(m => ({
-      role: m.role === "user" ? "user" : "model",
-      parts: [{ text: m.text }]
-    }));
-
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: formattedMessages,
-      config: {
-        systemInstruction
-      }
-    });
-
-    return response.text;
+    let data;
+    if (provider === 'gemini') {
+      const formattedMessages = messages.map(m => ({
+        role: m.role === "user" ? "user" : "model",
+        parts: [{ text: m.text }]
+      }));
+      data = await callAiProxy('gemini', { 
+        contents: formattedMessages,
+        model: "gemini-2.0-flash",
+        systemInstruction: { parts: [{ text: systemInstruction }] }
+      });
+    } else {
+      // Provedores OpenAI-Compatible (GPT e DeepSeek)
+      const formattedMessages = messages.map(m => ({ 
+        role: m.role === "user" ? "user" : "assistant", 
+        content: m.text 
+      }));
+      data = await callAiProxy(provider, { 
+        messages: formattedMessages,
+        systemInstruction: systemInstruction 
+      });
+    }
+    return data.text;
   } catch (error) {
     console.error("Error in chatbot response:", error);
     return "Desculpe, tive um problema ao processar sua ideia. Pode tentar novamente?";
@@ -212,23 +286,22 @@ export async function generateAutoCharacterLore(name: string, storyContext: stri
   Retorne um objeto JSON com "description" e "traits".`;
 
   try {
-    const response = await ai.models.generateContent({
+    const data = await callAiProxy('gemini', { 
+      prompt,
       model: "gemini-2.0-flash",
-      contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.OBJECT,
+          type: "object",
           properties: {
-            description: { type: Type.STRING },
-            traits: { type: Type.STRING }
+            description: { type: "string" },
+            traits: { type: "string" }
           },
           required: ["description", "traits"]
         }
       }
     });
-
-    return JSON.parse(response.text || '{"description": "", "traits": ""}') as { description: string, traits: string };
+    return parseAiResponse(data.text) || { description: "", traits: "" };
   } catch (error) {
     console.error("Error generating character lore:", error);
     return { description: "", traits: "" };
@@ -252,27 +325,26 @@ export async function processLoreDraft(draft: string) {
   Rascunho: "${draft}"`;
 
   try {
-    const response = await ai.models.generateContent({
+    const data = await callAiProxy('gemini', { 
+      prompt,
       model: "gemini-2.0-flash",
-      contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
+          type: "array",
           items: {
-            type: Type.OBJECT,
+            type: "object",
             properties: {
-              title: { type: Type.STRING },
-              content: { type: Type.STRING },
-              category: { type: Type.STRING, enum: ['world', 'lore', 'note', 'rpg', 'item', 'magic', 'faction', 'timeline'] }
+              title: { type: "string" },
+              content: { type: "string" },
+              category: { type: "string", enum: ['world', 'lore', 'note', 'rpg', 'item', 'magic', 'faction', 'timeline'] }
             },
             required: ["title", "content", "category"]
           }
         }
       }
     });
-
-    return JSON.parse(response.text || "[]") as { title: string, content: string, category: 'world' | 'lore' | 'note' }[];
+    return parseAiResponse(data.text) || [];
   } catch (error) {
     console.error("Error processing lore draft:", error);
     return [];
@@ -298,15 +370,14 @@ export async function architectLore(type: 'location' | 'event' | 'system' | 'atm
   Retorne um objeto JSON com: { "title": string, "content": string, "category": "world"|"lore"|"note"|"rpg"|"item"|"magic"|"faction"|"timeline" }.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const data = await callAiProxy('gemini', { 
+      prompt,
       model: "gemini-2.0-flash",
-      contents: prompt,
       config: {
         responseMimeType: "application/json"
       }
     });
-
-    return JSON.parse(response.text || "{}") as { title: string, content: string, category: 'world' | 'lore' | 'note' };
+    return parseAiResponse(data.text) || {};
   } catch (error) {
     console.error("Error in architectLore:", error);
     return null;
@@ -330,12 +401,11 @@ export async function getAutocomplete(context: string, textBefore: string, textA
   6. Retorne string vazia se não houver uma continuação óbvia ou inspirada.`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
+    const data = await callAiProxy('gemini', { 
+      prompt,
+      model: "gemini-2.0-flash"
     });
-
-    return response.text.trim().replace(/["']/g, ''); // Remove quotes if model adds them
+    return data.text.trim().replace(/["']/g, ''); // Remove quotes if model adds them
   } catch (error) {
     console.error("Error in getAutocomplete:", error);
     return "";
@@ -349,19 +419,18 @@ export async function getSynonyms(word: string, sentence: string, context: strin
   Retorne apenas um array JSON de strings.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const data = await callAiProxy('gemini', { 
+      prompt,
       model: "gemini-2.0-flash",
-      contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
-          items: { type: Type.STRING }
+          type: "array",
+          items: { type: "string" }
         }
       }
     });
-
-    return JSON.parse(response.text || "[]") as string[];
+    return parseAiResponse(data.text) || [];
   } catch (error) {
     console.error("Error in getSynonyms:", error);
     return [];
@@ -389,26 +458,25 @@ export async function getPanelSuggestions(projectContext: string, currentPanels:
   Retorne um array JSON de objetos: { "title": string, "description": string }.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const data = await callAiProxy('gemini', { 
+      prompt,
       model: "gemini-2.0-flash",
-      contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
+          type: "array",
           items: {
-            type: Type.OBJECT,
+            type: "object",
             properties: {
-              title: { type: Type.STRING },
-              description: { type: Type.STRING }
+              title: { type: "string" },
+              description: { type: "string" }
             },
             required: ["title", "description"]
           }
         }
       }
     });
-
-    return JSON.parse(response.text || "[]") as { title: string, description: string }[];
+    return parseAiResponse(data.text) || [];
   } catch (error) {
     console.error("Error in getPanelSuggestions:", error);
     return [];
@@ -425,12 +493,11 @@ export async function refinePanelDescription(projectContext: string, currentDesc
   Retorne apenas o texto da descrição aprimorada.`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
+    const data = await callAiProxy('gemini', { 
+      prompt,
+      model: "gemini-2.0-flash"
     });
-
-    return response.text.trim();
+    return data.text.trim();
   } catch (error) {
     console.error("Error in refinePanelDescription:", error);
     return currentDescription;
@@ -459,34 +526,31 @@ export async function generateStoryboardFromText(projectContext: string, manuscr
   Retorne um array JSON: [{ "title": string, "description": string, "pageNumber": number }].`;
 
   try {
-    const response = await ai.models.generateContent({
+    const data = await callAiProxy('gemini', { 
+      prompt,
       model: "gemini-2.0-flash",
-      contents: prompt,
       config: {
         responseMimeType: "application/json",
         responseSchema: {
-          type: Type.ARRAY,
+          type: "array",
           items: {
-            type: Type.OBJECT,
+            type: "object",
             properties: {
-              title: { type: Type.STRING },
-              description: { type: Type.STRING },
-              pageNumber: { type: Type.NUMBER }
+              title: { type: "string" },
+              description: { type: "string" },
+              pageNumber: { type: "number" }
             },
             required: ["title", "description", "pageNumber"]
           }
         }
       }
     });
-
-    return JSON.parse(response.text || "[]") as { title: string, description: string, pageNumber: number }[];
+    return parseAiResponse(data.text) || [];
   } catch (error) {
     console.error("Error in generateStoryboardFromText:", error);
     return [];
   }
 }
-
-import { AuditReport } from "../types";
 
 export async function runIntelligentAudit(
   manuscript: string, 
@@ -559,15 +623,14 @@ export async function runIntelligentAudit(
   - Use um tom profissional, sofisticado e visionário.`;
 
   try {
-    const response = await ai.models.generateContent({
+    const data = await callAiProxy('gemini', { 
+      prompt,
       model: "gemini-2.0-flash",
-      contents: prompt,
       config: {
         responseMimeType: "application/json"
       }
     });
-
-    const report = JSON.parse(response.text || "null");
+    const report = parseAiResponse(data.text);
     if (report) {
        report.timestamp = new Date();
     }
@@ -607,15 +670,14 @@ export async function runCinematicDirector(
   }`;
 
   try {
-    const response = await ai.models.generateContent({
+    const data = await callAiProxy('gemini', { 
+      prompt,
       model: "gemini-2.0-flash",
-      contents: prompt,
       config: {
         responseMimeType: "application/json"
       }
     });
-
-    return JSON.parse(response.text || "{}");
+    return parseAiResponse(data.text) || {};
   } catch (error) {
     console.error("Error in runCinematicDirector:", error);
     return null;
@@ -649,14 +711,28 @@ export async function improveWriting(
   Retorne apenas o texto reescrito, sem explicações.`;
 
   try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: prompt,
+    const data = await callAiProxy('gemini', { 
+      prompt,
+      model: "gemini-2.0-flash"
     });
-
-    return response.text.trim();
+    return data.text.trim();
   } catch (error) {
     console.error("Error in improveWriting:", error);
     return text;
+  }
+}
+
+// --- New Translation Service ---
+export async function translateText(text: string, targetLang: string, sourceLang?: string) {
+  try {
+    const data = await callTranslationProxy({ 
+      text, 
+      target_lang: targetLang, 
+      source_lang: sourceLang 
+    });
+    return data.translatedText;
+  } catch (error) {
+    console.error("Error translating text:", error);
+    return "";
   }
 }

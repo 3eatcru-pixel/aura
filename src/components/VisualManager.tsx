@@ -29,7 +29,7 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
   const [aiSuggestions, setAiSuggestions] = useState<{ title: string, description: string, pageNumber?: number }[]>([]);
   const [editingAsset, setEditingAsset] = useState<ArtAsset | null>(null);
   const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState(false);
-  const [generatingImageForSuggestion, setGeneratingImageForSuggestion] = useState<Set<string>>(new Set()); // Track loading per suggestion
+  const [generatingImageForSuggestion, setGeneratingImageForSuggestion] = useState<Set<string>>(new Set()); // Track loading per suggestion (for AI suggestions)
   
   const [formData, setFormData] = useState({ 
     title: '', 
@@ -507,7 +507,7 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
                           }
                         }}
                         disabled={isGeneratingImage}
-                        className="p-3 bg-editorial-accent text-white rounded-xl shadow-lg hover:opacity-90 transition-all flex items-center justify-center disabled:opacity-30"
+                        className="p-3 bg-editorial-accent text-white rounded-xl shadow-lg hover:opacity-90 transition-all flex items-center justify-center disabled:opacity-50"
                         title="Gerar Arte com IA"
                       >
                         {isGeneratingImage ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}

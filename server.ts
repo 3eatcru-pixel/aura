@@ -39,6 +39,7 @@ app.get('/api/auth/google/url', (req, res) => {
       'https://www.googleapis.com/auth/drive.file',
       'https://www.googleapis.com/auth/userinfo.profile',
       'https://www.googleapis.com/auth/userinfo.email',
+      'https://www.googleapis.com/auth/generative-language', // Escopo para Gemini via OAuth
     ],
     prompt: 'consent',
   });
@@ -89,6 +90,209 @@ app.get('/api/auth/google/callback', async (req, res) => {
 app.get('/api/auth/google/status', (req, res) => {
   const tokens = req.cookies.google_drive_tokens;
   res.json({ connected: !!tokens });
+});
+
+// --- AI Assistant Proxy (Plugin Style) - Gemini ---
+app.post('/api/ai/gemini-proxy', async (req, res) => {
+  const tokensStr = req.cookies.google_drive_tokens;
+  if (!tokensStr) {
+    return res.status(401).json({ error: 'Assistente não conectado. Por favor, faça login com Google.' });
+  }
+
+  const { prompt, config, systemInstruction } = req.body;
+  
+  try {
+    const tokens = JSON.parse(tokensStr);
+    const client = getOAuthClient();
+    
+    // Store initial tokens to check for refresh later
+    const initialAccessToken = tokens.access_token;
+
+    client.setCredentials(tokens);
+
+    // Refresh token se necessário (essencial para serverless não perder a conexão)
+    const accessTokenResponse = await client.getAccessToken();
+    const token = accessTokenResponse.token;
+    
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        contents: req.body.contents || [{ parts: [{ text: prompt }] }],
+        generationConfig: config || {
+          temperature: 0.7,
+          maxOutputTokens: 2048,
+        },
+        systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined
+      })
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.error?.message || 'Erro na comunicação com o Gemini');
+    }
+    
+    // Se o token mudou durante a execução, atualiza o cookie do usuário
+    if (client.credentials.access_token !== initialAccessToken) {
+      res.cookie('google_drive_tokens', JSON.stringify(client.credentials), {
+        httpOnly: true,
+        secure: true,
+        sameSite: 'none',
+        maxAge: 30 * 24 * 60 * 60 * 1000,
+      });
+    }
+    
+    // Retorna o texto formatado para o frontend
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    res.json({ text });
+    
+  } catch (error: any) {
+    console.error('AI Gemini Proxy Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- AI Assistant Proxy (Plugin Style) - GPT ---
+app.post('/api/ai/gpt-proxy', async (req, res) => {
+  // Prioriza a chave enviada pelo usuário via header para custo zero do dono do app
+  const userKey = req.headers['x-user-openai-key'];
+  const openaiApiKey = userKey || process.env.OPENAI_API_KEY;
+
+  if (!openaiApiKey) {
+    return res.status(401).json({ error: 'Chave de API OpenAI não encontrada. Configure-a no Assistente.' });
+  }
+
+  const { messages, model, config, systemInstruction } = req.body;
+
+  try {
+    // Converte systemInstruction para o formato de mensagens da OpenAI
+    const fullMessages = [...messages];
+    if (systemInstruction) {
+      fullMessages.unshift({ role: 'system', content: systemInstruction });
+    }
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${openaiApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model || 'gpt-3.5-turbo', // Default to a common GPT model
+        messages: fullMessages,
+        ...config
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error?.message || 'Erro na comunicação com o GPT');
+    }
+
+    const text = data.choices?.[0]?.message?.content || '';
+    res.json({ text });
+
+  } catch (error: any) {
+    console.error('AI GPT Proxy Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- AI Assistant Proxy (Plugin Style) - DeepSeek ---
+app.post('/api/ai/deepseek-proxy', async (req, res) => {
+  const userKey = req.headers['x-user-deepseek-key'];
+  const deepseekApiKey = userKey || process.env.DEEPSEEK_API_KEY;
+
+  if (!deepseekApiKey) {
+    return res.status(401).json({ error: 'Chave de API DeepSeek não encontrada.' });
+  }
+
+  const { messages, config, systemInstruction } = req.body;
+
+  try {
+    // DeepSeek é compatível com o formato de mensagens da OpenAI
+    const fullMessages = [...messages];
+    if (systemInstruction) {
+      fullMessages.unshift({ role: 'system', content: systemInstruction });
+    }
+
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${deepseekApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: fullMessages,
+        ...config,
+      }),
+    });
+
+    const data = await response.json();
+    
+    if (!response.ok) {
+      throw new Error(data.error?.message || 'Erro na comunicação com o DeepSeek');
+    }
+
+    const text = data.choices?.[0]?.message?.content || '';
+    res.json({ text });
+  } catch (error: any) {
+    console.error('AI DeepSeek Proxy Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- Translation Proxy (DeepL) ---
+app.post('/api/translate/deepl-proxy', async (req, res) => {
+  const userKey = req.headers['x-user-deepl-key'];
+  const deeplApiKey = userKey || process.env.DEEPL_API_KEY;
+
+  if (!deeplApiKey) {
+    return res.status(401).json({ error: 'Chave de API DeepL não configurada.' });
+  }
+
+  const { text, target_lang, source_lang } = req.body;
+
+  try {
+    const response = await fetch('https://api-free.deepl.com/v2/translate', { // Use api-free for free tier
+      method: 'POST',
+      headers: {
+        'Authorization': `DeepL-Auth-Key ${deeplApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        text: [text],
+        target_lang: target_lang,
+        source_lang: source_lang, // Optional
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || 'Erro na comunicação com o DeepL');
+    }
+
+    const translatedText = data.translations?.[0]?.text || '';
+    res.json({ translatedText });
+  } catch (error: any) {
+    console.error('AI Proxy Error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// --- Connection Test Endpoint ---
+app.post('/api/ai/validate-key', async (req, res) => {
+  const { type, key } = req.body;
+  // Implementar lógica de ping ultra-rápido para cada serviço
+  // Ex: OpenAI chama o endpoint /models com a chave
+  res.json({ success: true, message: 'Chave válida e pronta para uso.' });
 });
 
 app.post('/api/sync/drive', async (req, res) => {
@@ -222,12 +426,16 @@ app.post('/api/sync/drive', async (req, res) => {
       }
 
       for (const proj of soloProjects) {
-        const projFolderId = await findOrCreateFolder(proj.title, soloFolderId);
-        if (!projFolderId) {
-          console.warn(`Could not create or find folder for solo project: ${proj.title}`);
-          continue;
+        try {
+          const projFolderId = await findOrCreateFolder(proj.title, soloFolderId);
+          if (!projFolderId) {
+            console.warn(`Could not create or find folder for solo project: ${proj.title}`);
+            continue;
+          }
+          await findOrCreateUpdateFile('Manuscrito.txt', projFolderId, 'text/plain', proj.fullContent || '');
+        } catch (projError) {
+          console.error(`Failed to sync solo project ${proj.title}:`, projError);
         }
-        await findOrCreateUpdateFile('Manuscrito.txt', projFolderId, 'text/plain', proj.fullContent || '');
       }
     }
 

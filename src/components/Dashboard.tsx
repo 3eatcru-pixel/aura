@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Project, Universe } from '../types';
-import { Plus, Github, Search, Book, Clock, ChevronRight, Globe, Layers, Layout, BookOpen, Cloud, RefreshCw, CheckCircle2, Trash2, Dices, Sparkles, Wand2, X, Users, Zap, Shield } from 'lucide-react';
+import { Plus, Github, Search, Book, Clock, ChevronRight, Globe, Layers, Layout, BookOpen, Cloud, RefreshCw, CheckCircle2, Trash2, Dices, Sparkles, Wand2, X, Users, Zap, Shield, Settings2 } from 'lucide-react';
 import { collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,6 +17,7 @@ export function Dashboard({ projects, onSelectProject }: DashboardProps) {
   const [isCreatingUniverse, setIsCreatingUniverse] = useState(false);
   const [universes, setUniverses] = useState<Universe[]>([]);
   const [selectedUniverseId, setSelectedUniverseId] = useState<string | 'solo'>('solo');
+  const [showApiKeySettings, setShowApiKeySettings] = useState(false);
   
   const [newTitle, setNewTitle] = useState('');
   const [newType, setNewType] = useState<Project['type']>('novel');
@@ -188,12 +189,86 @@ export function Dashboard({ projects, onSelectProject }: DashboardProps) {
     return matchesSearch && matchesUniverse;
   });
 
+  // Componente interno para gerenciar chaves BYOK
+  const ApiKeySettingsModal = () => {
+    const [keys, setKeys] = useState({
+      provider: localStorage.getItem('aura_ai_provider') || 'gemini',
+      openai: localStorage.getItem('aura_openai_key') || '',
+      deepseek: localStorage.getItem('aura_deepseek_key') || '',
+      deepl: localStorage.getItem('aura_deepl_key') || '',
+    });
+
+    const saveKeys = () => {
+      localStorage.setItem('aura_ai_provider', keys.provider);
+      localStorage.setItem('aura_openai_key', keys.openai);
+      localStorage.setItem('aura_deepseek_key', keys.deepseek);
+      localStorage.setItem('aura_deepl_key', keys.deepl);
+      setShowApiKeySettings(false);
+      setSyncMessage({ text: 'Configurações de IA preservadas!', type: 'success' });
+    };
+
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="w-full max-w-md bg-[#1a1a1a] border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl"
+        >
+          <div className="flex justify-between items-center">
+            <h3 className="text-xl font-brand tracking-widest text-white uppercase">Assistente BYOK</h3>
+            <button onClick={() => setShowApiKeySettings(false)} className="text-white/20 hover:text-white"><X className="w-6 h-6" /></button>
+          </div>
+          <p className="text-[10px] text-editorial-muted uppercase tracking-widest leading-relaxed">
+            Suas chaves são salvas apenas localmente. O AURA funciona como um plugin que utiliza sua infraestrutura pessoal.
+          </p>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[9px] font-black text-editorial-accent uppercase tracking-widest">Provedor Principal</label>
+              <select 
+                value={keys.provider}
+                onChange={e => setKeys({...keys, provider: e.target.value})}
+                className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-editorial-accent transition-all text-xs text-white appearance-none"
+              >
+                <option value="gemini" className="bg-[#1a1a1a]">Google Gemini (via Login)</option>
+                <option value="gpt" className="bg-[#1a1a1a]">OpenAI GPT-4o (BYOK)</option>
+                <option value="deepseek" className="bg-[#1a1a1a]">DeepSeek V3 (BYOK)</option>
+              </select>
+            </div>
+
+            {['openai', 'deepseek', 'deepl'].map(type => (
+              <div key={type} className="space-y-2">
+                <label className="text-[9px] font-black text-editorial-accent uppercase tracking-widest">{type} API Key</label>
+                <input 
+                  type="password"
+                  value={(keys as any)[type]}
+                  onChange={e => setKeys({...keys, [type]: e.target.value})}
+                  placeholder={type === 'deepl' ? 'Auth Key' : 'sk-...'}
+                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-editorial-accent transition-all text-xs text-white"
+                />
+              </div>
+            ))}
+          </div>
+          <button 
+            onClick={saveKeys}
+            className="w-full py-4 bg-editorial-accent text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-neon hover:scale-[1.02] transition-all"
+          >
+            Ativar Plugins de IA
+          </button>
+        </motion.div>
+      </div>
+    );
+  };
+
   return (
     <motion.div 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       className="flex-1 overflow-y-auto custom-scrollbar bg-editorial-bg"
     >
+      <AnimatePresence>
+        {showApiKeySettings && <ApiKeySettingsModal />}
+      </AnimatePresence>
+
       <div className="max-w-7xl mx-auto px-8 md:px-12 py-12 space-y-12">
         {/* Hero Header */}
         <div className="relative overflow-hidden rounded-[48px] bg-gradient-to-br from-editorial-sidebar to-editorial-bg p-12 md:p-20 border border-white/5 shadow-2xl">
@@ -315,13 +390,20 @@ export function Dashboard({ projects, onSelectProject }: DashboardProps) {
 
             <div className="space-y-4">
                <h3 className="text-[9px] font-black text-editorial-accent uppercase tracking-[0.4em] px-4 flex items-center gap-2">
-                 Sincronia <Cloud className="w-3 h-3" />
+                 Assistente & Nuvem <Zap className="w-3 h-3 text-editorial-accent" />
                </h3>
                <div className="bg-white/5 border border-white/10 rounded-3xl p-6 space-y-6">
+                  <button 
+                    onClick={() => setShowApiKeySettings(true)}
+                    className="w-full flex items-center justify-center gap-2 bg-white/5 text-white/60 py-3 rounded-xl text-[8px] font-black uppercase tracking-widest hover:bg-white/10 transition-all border border-white/10"
+                  >
+                    <Settings2 className="w-3 h-3" /> Configurar Chaves (BYOK)
+                  </button>
+                  
                   <div className="flex items-center gap-3">
                      <div className={cn("w-2 h-2 rounded-full", isDriveConnected ? "bg-green-500 shadow-[0_0_8px_green]" : "bg-red-500 shadow-[0_0_8px_red]")} />
                      <span className="text-[9px] font-black text-editorial-muted uppercase tracking-wider">
-                        {isDriveConnected ? "Cloud Connect" : "Desconectado"}
+                        {isDriveConnected ? "Plugins de IA Ativos" : "Plugins de IA Offline"}
                      </span>
                   </div>
 
