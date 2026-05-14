@@ -65,7 +65,11 @@ export function AIChat({ project, currentContent }: AIChatProps) {
       `;
 
       // 3. Get AI Response
-      const responseText = await chatBotResponse([...messages, { role: 'user', text: userText } as any], projectContext);
+      const history = messages.map(m => ({
+        role: m.role as 'user' | 'assistant',
+        text: m.text
+      }));
+      const responseText = await chatBotResponse([...history, { role: 'user', text: userText }], projectContext);
 
       // 4. Add AI message to Firestore
       await addDoc(collection(db, 'projects', project.id, 'chat'), {

@@ -233,7 +233,14 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
   const handleSave = async () => {
     const currentChapter = chapters.find(c => c.id === activeChapterId);
-    if (!activeChapterId || !currentChapter || content === currentChapter.content) return;
+    
+    // Prevenção de salvamento redundante ou vazio
+    if (
+      !activeChapterId || 
+      !currentChapter || 
+      content === currentChapter.content || 
+      saveStatus === 'saving'
+    ) return;
     
     setSaveStatus('saving');
     try {
@@ -971,7 +978,12 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
                   exit={{ opacity: 0 }}
                   className="h-full"
                 >
-                  <VisualManager project={project} characters={characters} onSwitchToDirector={() => setShowDirector(true)} />
+                  <VisualManager 
+                    project={project} 
+                    characters={characters} 
+                    chapters={chapters}
+                    onSwitchToDirector={() => setShowDirector(true)} 
+                  />
                 </motion.div>
               )}
 

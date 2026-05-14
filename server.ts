@@ -96,8 +96,15 @@ app.post('/api/sync/drive', async (req, res) => {
     return res.status(401).json({ error: 'Google Drive não conectado' });
   }
 
+  let tokens;
+  try {
+    tokens = JSON.parse(tokensStr);
+  } catch (parseError) {
+    console.error('Error parsing Google Drive tokens from cookie:', parseError);
+    return res.status(400).json({ error: 'Tokens de autenticação inválidos' });
+  }
+
   const { projects, universes } = req.body;
-  const tokens = JSON.parse(tokensStr);
   
   const client = getOAuthClient();
   client.setCredentials(tokens);
@@ -105,95 +112,86 @@ app.post('/api/sync/drive', async (req, res) => {
   const drive = google.drive({ version: 'v3', auth: client });
 
   try {
-    // 1. Create or Find Root Folder
-    let rootFolderId;
-    const rootSearch = await drive.files.list({
-      q: "name = 'My Manuscript Backup' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
-      fields: 'files(id)',
-    });
-
-    if (rootSearch.data.files?.length) {
-      rootFolderId = rootSearch.data.files[0].id;
-    } else {
-      const rootFolder = await drive.files.create({
-        requestBody: {
-          name: 'My Manuscript Backup',
-          mimeType: 'application/vnd.google-apps.folder',
-        },
+    // Helper function to find or create a folder
+    const findOrCreateFolder = async (name: string, parentId: string | null = null) => {
+      const q = parentId ? `'${parentId}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false` : `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+      const search = await drive.files.list({ q, fields: 'files(id)' });
+      if (search.data.files && search.data.files.length > 0) {
+        return search.data.files[0].id;
+      }
+      const folder = await drive.files.create({
+        requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: parentId ? [parentId] : [] },
         fields: 'id',
       });
-      rootFolderId = rootFolder.data.id;
+      return folder.data.id;
+    };
+
+    // Helper function to find or create/update a file
+    const findOrCreateUpdateFile = async (name: string, parentId: string, mimeType: string, body: string) => {
+      const q = `'${parentId}' in parents and name = '${name}' and trashed = false`;
+      const search = await drive.files.list({ q, fields: 'files(id)' });
+      
+      if (search.data.files && search.data.files.length > 0) {
+        // File exists, update its content
+        await drive.files.update({
+          fileId: search.data.files[0].id!,
+          media: { mimeType, body },
+        });
+        return search.data.files[0].id;
+      } else {
+        // File does not exist, create it
+        const file = await drive.files.create({
+          requestBody: { name, parents: [parentId] },
+          media: { mimeType, body },
+          fields: 'id',
+        });
+        return file.data.id;
+      }
+    };
+
+    // 1. Create or Find Root Folder
+    const rootFolderId = await findOrCreateFolder('My Manuscript Backup');
+    if (!rootFolderId) {
+      throw new Error('Could not create or find root folder.');
     }
 
     // 2. Sync Logic: Organized Folders
     for (const uni of universes) {
       // Create Universe Folder
-      const uniFolder = await drive.files.create({
-        requestBody: {
-          name: uni.title,
-          mimeType: 'application/vnd.google-apps.folder',
-          parents: [rootFolderId!],
-        },
-        fields: 'id',
-      });
+      const uniFolderId = await findOrCreateFolder(uni.title, rootFolderId);
+      if (!uniFolderId) {
+        console.warn(`Could not create or find folder for universe: ${uni.title}`);
+        continue; // Skip this universe if folder cannot be created
+      }
       
       const uniProjects = projects.filter((p: any) => p.universeId === uni.id);
       for (const proj of uniProjects) {
-        const projFolder = await drive.files.create({
-          requestBody: {
-            name: proj.title,
-            mimeType: 'application/vnd.google-apps.folder',
-            parents: [uniFolder.data.id!],
-          },
-          fields: 'id',
-        });
+        const projFolderId = await findOrCreateFolder(proj.title, uniFolderId);
+        if (!projFolderId) {
+          console.warn(`Could not create or find folder for project: ${proj.title} in universe: ${uni.title}`);
+          continue;
+        }
 
         // Add Content.txt
-        await drive.files.create({
-          requestBody: {
-            name: 'Manuscrito.txt',
-            parents: [projFolder.data.id!],
-          },
-          media: {
-            mimeType: 'text/plain',
-            body: proj.currentContent || '',
-          },
-        });
+        await findOrCreateUpdateFile('Manuscrito.txt', projFolderId, 'text/plain', proj.currentContent || '');
       }
     }
 
     // Handle Solo Stories
     const soloProjects = projects.filter((p: any) => !p.universeId);
     if (soloProjects.length > 0) {
-      const soloFolder = await drive.files.create({
-        requestBody: {
-          name: 'Solo Stories',
-          mimeType: 'application/vnd.google-apps.folder',
-          parents: [rootFolderId!],
-        },
-        fields: 'id',
-      });
+      const soloFolderId = await findOrCreateFolder('Solo Stories', rootFolderId);
+      if (!soloFolderId) {
+        console.warn('Could not create or find Solo Stories folder.');
+      }
 
       for (const proj of soloProjects) {
-        const projFolder = await drive.files.create({
-          requestBody: {
-            name: proj.title,
-            mimeType: 'application/vnd.google-apps.folder',
-            parents: [soloFolder.data.id!],
-          },
-          fields: 'id',
-        });
-
-        await drive.files.create({
-          requestBody: {
-            name: 'Manuscrito.txt',
-            parents: [projFolder.data.id!],
-          },
-          media: {
-            mimeType: 'text/plain',
-            body: proj.currentContent || '',
-          },
-        });
+        const projFolderId = await findOrCreateFolder(proj.title, soloFolderId);
+        if (!projFolderId) {
+          console.warn(`Could not create or find folder for solo project: ${proj.title}`);
+          continue;
+        }
+        await findOrCreateUpdateFile('Manuscrito.txt', projFolderId, 'text/plain', proj.currentContent || '');
       }
     }
 

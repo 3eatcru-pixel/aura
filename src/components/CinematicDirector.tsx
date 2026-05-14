@@ -5,9 +5,8 @@ import {
   Plus, Trash2, Camera, Layout, Layers, Wand2, Sparkles, 
   ChevronRight, X, ChevronLeft, Maximize2, Minimize2, 
   Type as FontIcon, Image as ImageIcon, Video, Palette,
-  Activity, Film, Settings2, Download, Save, Users,
-  Clapperboard, Music, MousePointer2, Hand, ZoomIn, ZoomOut,
-  Type
+  Activity, Film, Settings2, Download, Save, Users, RefreshCw,
+  Clapperboard, Music, MousePointer2, Hand, ZoomIn, ZoomOut
 } from 'lucide-react';
 import { Project, CinematicNode, Character } from '../types';
 import { db } from '../lib/firebase';
@@ -52,7 +51,21 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
       width: containerRef.current.clientWidth,
       height: containerRef.current.clientHeight,
       backgroundColor: '#0a0a0a',
+      allowTouchScrolling: true,
+      stopContextMenu: true
     });
+
+    const handleResize = () => {
+      if (containerRef.current && fabricCanvas.current) {
+        fabricCanvas.current.setDimensions({
+          width: containerRef.current.clientWidth,
+          height: containerRef.current.clientHeight
+        });
+        fabricCanvas.current.renderAll();
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
 
     const canvas = fabricCanvas.current;
 
@@ -84,8 +97,9 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
     // Cleanup
     return () => {
       canvas.dispose();
+      window.removeEventListener('resize', handleResize);
     };
-  }, [containerRef.current]);
+  }, [containerRef.current, activeTool]);
 
   // Sync Nodes from Firebase
   useEffect(() => {
@@ -138,6 +152,11 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
 
     if (node.content.imageUrl) {
       fabric.Image.fromURL(node.content.imageUrl, (img) => {
+        if (!img) {
+          console.error("Failed to load image for node:", node.id);
+          return;
+        }
+
         img.set({
           left: node.x,
           top: node.y,
@@ -594,28 +613,5 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
         )}
       </AnimatePresence>
     </div>
-  );
-}
-
-// Support Components
-function RefreshCw(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-      <path d="M3 21v-5h5" />
-    </svg>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Project, Lore, LoreVersion, Chapter } from '../types';
-import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, limit, getDocs } from 'firebase/firestore';
+import { collection, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, orderBy, limit, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { BookOpen, Search, Filter, Plus, Trash2, Edit2, Globe, ScrollText, Notebook, Sparkles, Brain, Check, X, Loader2, Zap, Users, Clock, History, Save } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -76,10 +76,20 @@ export function LoreManager({ project, chapters = [], initialAssistantOpen = fal
 
     try {
       if (editingId) {
+        const oldLore = lores.find(l => l.id === editingId);
+        const titleChanged = oldLore && oldLore.title !== formData.title;
+
         await updateDoc(doc(db, 'projects', project.id, 'lore', editingId), {
           ...formData,
           updatedAt: serverTimestamp(),
         });
+
+        if (titleChanged && oldLore) {
+          const confirmRefactor = confirm(`Deseja atualizar todas as ocorrências de "${oldLore.title}" para "${formData.title}" no manuscrito?`);
+          if (confirmRefactor) {
+            await refactorLoreInChapters(oldLore.title, formData.title);
+          }
+        }
         setEditingId(null);
       } else {
         await addDoc(collection(db, 'projects', project.id, 'lore'), {
@@ -89,6 +99,33 @@ export function LoreManager({ project, chapters = [], initialAssistantOpen = fal
         setIsAdding(false);
       }
       setFormData({ title: '', content: '', category: 'lore', properties: '' });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const refactorLoreInChapters = async (oldTitle: string, newTitle: string) => {
+    try {
+      const batch = writeBatch(db);
+      let count = 0;
+      const loreRegex = new RegExp(`\\b${oldTitle}\\b`, 'g');
+      
+      chapters.forEach(chapter => {
+        if (loreRegex.test(chapter.content)) {
+          const newContent = chapter.content.replace(loreRegex, newTitle);
+          const chapterRef = doc(db, 'projects', project.id, 'chapters', chapter.id);
+          batch.update(chapterRef, {
+            content: newContent,
+            updatedAt: serverTimestamp()
+          });
+          count++;
+        }
+      });
+
+      if (count > 0) {
+        await batch.commit();
+        alert(`Sincronização concluída! ${count} capítulo(s) atualizados.`);
+      }
     } catch (err) {
       console.error(err);
     }

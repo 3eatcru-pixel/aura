@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Project, ArtAsset } from '../types';
-import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, query, orderBy, updateDoc, getDocs } from 'firebase/firestore';
+import { Project, ArtAssetpshot, addDoc, deleteDoc, doc, serverTimestamp, query, orderBy, updateDoc, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Image as ImageIcon, Plus, Trash2, Layout, Maximize2, X, Layers, Filter, Grid2X2, List, Sparkles, ChevronLeft, ChevronRight, Wand2, Edit3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -10,13 +9,14 @@ import { ImageEditor } from './ImageEditor';
 
 interface VisualManagerProps {
   project: Project;
-  characters?: any[];
+  characters?: Character[];
+  chapters?: Chapter[];
   onSwitchToDirector?: () => void;
   mode?: 'gallery' | 'storyboard';
   key?: string;
 }
 
-export function VisualManager({ project, characters = [], onSwitchToDirector, mode = 'gallery' }: VisualManagerProps) {
+export function VisualManager({ project, characters = [], chapters = [], onSwitchToDirector, mode = 'gallery' }: VisualManagerProps) {
   const [assets, setAssets] = useState<ArtAsset[]>([]);
   const [isAdding, setIsAdding] = useState(false);
   const [isEditing, setIsEditing] = useState<string | null>(null);
@@ -82,15 +82,14 @@ export function VisualManager({ project, characters = [], onSwitchToDirector, mo
   };
 
   const handleGenerateFromScript = async () => {
-    // This requires the manuscript content. 
-    // We can try to get it from the chapters in the DB or pass it via props.
-    // Let's check for chapters in the DB for this project.
+    if (chapters.length === 0) {
+      alert("Falha ao analisar o manuscrito. Certifique-se de que há capítulos escritos.");
+      return;
+    }
+
     setIsGeneratingStoryboard(true);
     try {
-      // Small trick: directly fetch chapters
-      const chaptersSnap = await getDocs(query(collection(db, 'projects', project.id, 'chapters'), orderBy('order', 'asc')));
-      const manuscript = chaptersSnap.docs.map(d => d.data().content).join('\n\n');
-      
+      const manuscript = chapters.map(c => c.content).join('\n\n');
       const loreText = `Projeto: ${project.title}. Descrição: ${project.description}. Tipo: ${project.type}.`;
       const suggestions = await generateStoryboardFromText(loreText, manuscript);
       setAiSuggestions(suggestions);

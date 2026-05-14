@@ -105,11 +105,11 @@ export function CharacterList({ project, chapters = [] }: CharacterListProps) {
       const batch = writeBatch(db);
       let count = 0;
       
+      const nameRegex = new RegExp(`\\b${oldName}\\b`, 'g');
+
       chapters.forEach(chapter => {
-        // Simple case-sensitive replacement. For better results, regex could be used
-        // but replaceAll is usually enough for character names.
-        if (chapter.content.includes(oldName)) {
-          const newContent = chapter.content.split(oldName).join(newName);
+        if (nameRegex.test(chapter.content)) {
+          const newContent = chapter.content.replace(nameRegex, newName);
           const chapterRef = doc(db, 'projects', project.id, 'chapters', chapter.id);
           batch.update(chapterRef, {
             content: newContent,
