@@ -20,11 +20,19 @@ interface CinematicDirectorProps {
   onClose?: () => void;
 }
 
+// Extensão de tipos para o Fabric Canvas para evitar erros de TS no panning
+interface ExtendedCanvas extends fabric.Canvas {
+  isDragging?: boolean;
+  lastPosX?: number;
+  lastPosY?: number;
+}
+
 export function CinematicDirector({ project, characters, onClose }: CinematicDirectorProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const fabricCanvas = useRef<fabric.Canvas | null>(null);
+  const fabricCanvas = useRef<ExtendedCanvas | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  
+  const loadingNodes = useRef<Set<string>>(new Set());
+
   const [nodes, setNodes] = useState<CinematicNode[]>([]);
   const [selectedNode, setSelectedNode] = useState<CinematicNode | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
@@ -36,7 +44,7 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
 
   // Auto-play preview
   useEffect(() => {
-    let interval: any;
+    let interval: ReturnType<typeof setInterval> | undefined;
     if (isPreviewMode && nodes.length > 0) {
       interval = setInterval(() => {
         setPreviewIndex(prev => (prev + 1) % nodes.length);
@@ -45,27 +53,25 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
     return () => clearInterval(interval);
   }, [isPreviewMode, nodes]);
   useEffect(() => {
-    if (!canvasRef.current || !containerRef.current) return;
+    if (!canvasRef.current) return;
 
+    const container = containerRef.current;
     fabricCanvas.current = new fabric.Canvas(canvasRef.current, {
-      width: containerRef.current.clientWidth,
-      height: containerRef.current.clientHeight,
+      width: container?.clientWidth || 800,
+      height: container?.clientHeight || 600,
       backgroundColor: '#0a0a0a',
       allowTouchScrolling: true,
       stopContextMenu: true
     });
 
-    const handleResize = () => {
-      if (containerRef.current && fabricCanvas.current) {
-        fabricCanvas.current.setDimensions({
-          width: containerRef.current.clientWidth,
-          height: containerRef.current.clientHeight
-        });
-        fabricCanvas.current.renderAll();
-      }
-    };
+    const resizeObserver = new ResizeObserver((entries) => {
+      if (!fabricCanvas.current || entries.length === 0) return;
+      const { width, height } = entries[0].contentRect;
+      fabricCanvas.current.setDimensions({ width, height });
+      fabricCanvas.current.renderAll();
+    });
 
-    window.addEventListener('resize', handleResize);
+    if (container) resizeObserver.observe(container);
 
     const canvas = fabricCanvas.current;
 
@@ -97,17 +103,19 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
     // Cleanup
     return () => {
       canvas.dispose();
-      window.removeEventListener('resize', handleResize);
+      resizeObserver.disconnect();
     };
-  }, [containerRef.current]);
+  }, []); // Inicializa apenas uma vez no mount
 
-  // Aplicar Zoom ao Canvas
+  // Aplicar Zoom ao Centro do Canvas
   useEffect(() => {
     const canvas = fabricCanvas.current;
     if (!canvas || !containerRef.current) return;
 
-    canvas.setZoom(zoom);
-    canvas.requestRenderAll();
+    // Zoom centralizado para melhor UX de storyboard
+    const center = canvas.getCenter();
+    canvas.zoomToPoint(new fabric.Point(center.left, center.top), zoom);
+    canvas.renderAll();
   }, [zoom]);
 
   // Handle Tool Changes without Re-creating Canvas
@@ -118,6 +126,13 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
     canvas.defaultCursor = activeTool === 'hand' ? 'grab' : 'default';
     canvas.selection = activeTool === 'select';
     
+    // Garante que objetos não interfiram no Panning quando a ferramenta mão estiver ativa
+    canvas.forEachObject(obj => {
+      obj.selectable = activeTool === 'select';
+      obj.evented = activeTool === 'select' || activeTool === 'panel' || activeTool === 'text';
+    });
+    canvas.requestRenderAll();
+
     // Panning (Hand Tool) Logic
     const handleMouseDown = (opt: fabric.IEvent) => {
       const evt = opt.e as MouseEvent;
@@ -133,8 +148,10 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
       if (canvas.isDragging) {
         const e = opt.e as MouseEvent;
         const vpt = canvas.viewportTransform;
-        vpt![4] += e.clientX - canvas.lastPosX;
-        vpt![5] += e.clientY - canvas.lastPosY;
+        
+        // Ajusta o movimento baseado no zoom para manter proporção 1:1 com o mouse
+        vpt![4] += (e.clientX - canvas.lastPosX!);
+        vpt![5] += (e.clientY - canvas.lastPosY!);
         canvas.requestRenderAll();
         canvas.lastPosX = e.clientX;
         canvas.lastPosY = e.clientY;
@@ -179,32 +196,41 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
 
     // 1. Remover objetos que não existem mais no banco
     existingObjects.forEach(obj => {
-      if (!nodeIdsToRender.has(obj.data.id)) {
+      if (obj.data?.id && !nodeIdsToRender.has(obj.data.id)) {
         canvas.remove(obj);
       }
     });
 
     // 2. Atualizar ou Criar
     nodesToRender.forEach(node => {
-      const existingObj = existingObjects.find(obj => obj.data.id === node.id);
+      const existingObj = existingObjects.find(obj => obj.data?.id === node.id);
 
-      if (existingObj) {
+      // Verifica se o objeto existe E se o tipo permanece o mesmo (Ex: Painel não virou Texto)
+      if (existingObj && existingObj.data?.type === node.type) {
         // Atualiza posição se mudou externamente (ex: por outro usuário ou IA)
-        if (existingObj.left !== node.x || existingObj.top !== node.y) {
-          existingObj.set({ left: node.x, top: node.y });
-          existingObj.setCoords();
-        }
+        if (!canvas.getActiveObject() || (canvas.getActiveObject()?.data?.id !== node.id)) {
+          if (existingObj.left !== node.x || existingObj.top !== node.y) {
+            existingObj.set({ left: node.x, top: node.y });
+            existingObj.setCoords();
+          }
 
-        // Atualizar texto se mudou (para IText)
-        if (node.type === 'text' && existingObj instanceof fabric.IText) {
-          if (existingObj.text !== node.content.balloonText) {
-            existingObj.set({ text: node.content.balloonText || '' });
+          // Atualizar texto se mudou (para IText)
+          if (node.type === 'text' && existingObj instanceof fabric.IText) {
+            if (existingObj.text !== node.content.balloonText) {
+              existingObj.set({ text: node.content.balloonText || '' });
+            }
           }
         }
       } else {
-        // Novo objeto
-        if (node.type === 'panel') renderPanelToCanvas(node);
-        else if (node.type === 'text') renderTextToCanvas(node);
+        // Se o tipo mudou ou não existe, remove o antigo e marca para recriação
+        if (existingObj) canvas.remove(existingObj);
+        
+        if (!loadingNodes.current.has(node.id)) {
+          loadingNodes.current.add(node.id);
+          // Novo objeto
+          if (node.type === 'panel') renderPanelToCanvas(node);
+          else if (node.type === 'text') renderTextToCanvas(node);
+        }
       }
     });
 
@@ -226,21 +252,32 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
       strokeWidth: 2,
       rx: 16,
       ry: 16,
-      data: { id: node.id }
+      data: { id: node.id, type: 'panel' }
     });
 
     if (node.content.imageUrl) {
-      fabric.Image.fromURL(node.content.imageUrl, (img) => {
-        if (!img) {
-          console.error("Failed to load image for node:", node.id);
+      fabric.Image.fromURL(node.content.imageUrl, (img, isError) => {
+        // Validação de sanidade: o nó ainda existe na lista atual de nós?
+        // Isso evita adicionar imagens de nós que foram deletados durante o download.
+        const nodeStillExists = nodes.some(n => n.id === node.id);
+
+        if (isError || !img || !canvas || !nodeStillExists) {
+          loadingNodes.current.delete(node.id);
+          // Se houver erro, renderiza o frame vazio para não quebrar o layout
+          if (isError && canvas && nodeStillExists) canvas.add(frame);
           return;
+        }
+
+        if (canvas.getObjects().find(o => o.data?.id === node.id)) {
+           loadingNodes.current.delete(node.id);
+           return;
         }
 
         img.set({
           left: node.x,
           top: node.y,
           selectable: false,
-          data: { id: node.id }
+          data: { id: node.id, type: 'panel' }
         });
         
         // Clip image to frame
@@ -250,14 +287,16 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
         const group = new fabric.Group([frame, img], {
           left: node.x,
           top: node.y,
-          data: { id: node.id }
+          data: { id: node.id, type: 'panel' }
         });
         
         canvas.add(group);
         canvas.sendToBack(group);
+        loadingNodes.current.delete(node.id);
       }, { crossOrigin: 'anonymous' });
     } else {
       canvas.add(frame);
+      loadingNodes.current.delete(node.id);
     }
   };
 
@@ -271,8 +310,9 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
       fontSize: 20,
       fontFamily: 'Inter',
       fill: 'white',
-      data: { id: node.id }
+      data: { id: node.id, type: 'text' }
     });
+    loadingNodes.current.delete(node.id);
 
     canvas.add(text);
   };

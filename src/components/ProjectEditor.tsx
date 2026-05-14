@@ -106,6 +106,8 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastUndoPush = useRef<number>(Date.now());
+  const isSavingRef = useRef(false);
+  const lastActiveChapterId = useRef<string | null>(null);
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -123,13 +125,16 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
           setContent(first.content || '');
           initialWordCount.current = first.content?.split(/\s+/).filter(x => x).length || 0;
         } else if (currentActive) {
-           // Mantém o conteúdo em sincronia se vier de fora
-           if (content === '') setContent(currentActive.content || '');
+           // Atualiza conteúdo apenas se houver mudança de capítulo para evitar sobrescrever deleções manuais
+           if (activeChapterId !== lastActiveChapterId.current) {
+              setContent(currentActive.content || '');
+           }
         }
         // Se não houver capítulos, cria o primeiro
         else if (caps.length === 0 && snap.metadata.fromCache === false) {
            handleCreateChapter("Página 1");
         }
+        lastActiveChapterId.current = activeChapterId;
       }
     );
 
@@ -221,8 +226,7 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
     // Debounce: Apenas empilha no Undo se passaram 3 segundos desde o último "ponto de restauração"
     const now = Date.now();
     if (now - lastUndoPush.current > 3000) {
-      setUndoStack(prev => [...prev.slice(-49), content]);
-      setRedoStack([]);
+      setUndoStack(prev => [...prev.slice(-
       lastUndoPush.current = now;
     }
 
@@ -231,8 +235,9 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
-        if (e.shiftKey) {
+      const isMod = e.ctrlKey || e.metaKey; // Suporte para Mac (Cmd) e Windows (Ctrl)
+      if (isMod && e.key.toLowerCase() === 'z') {
+        if (e.shiftKey || (navigator.platform.toUpperCase().indexOf('MAC') >= 0 && e.key === 'Z')) {
           handleRedo();
         } else {
           handleUndo();
@@ -244,6 +249,8 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
   }, [content, undoStack, redoStack]);
 
   const handleSave = async () => {
+    if (isSavingRef.current) return;
+
     const currentChapter = chapters.find(c => c.id === activeChapterId);
     
     // Prevenção de salvamento redundante ou vazio
@@ -254,35 +261,27 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
       saveStatus === 'saving'
     ) return;
     
+    isSavingRef.current = true;
     setSaveStatus('saving');
     try {
       const chapterPath = `projects/${project.id}/chapters/${activeChapterId}`;
-      const projectPath = `projects/${project.id}`;
-      
-      // Agregar conteúdo de todos os capítulos para o documento principal (sincronização Drive/Dashboard)
-      const fullContent = chapters
-        .map(c => c.id === activeChapterId ? content : (c.content || ""))
-        .join("\n\n");
 
       await updateDoc(doc(db, chapterPath), {
         content: content,
         updatedAt: serverTimestamp(),
       }).catch(err => handleFirestoreError(err, OperationType.UPDATE, chapterPath));
       
-      await updateDoc(doc(db, projectPath), {
-        currentContent: fullContent,
-        updatedAt: serverTimestamp()
-      }).catch(err => handleFirestoreError(err, OperationType.UPDATE, projectPath));
-      
       setSaveStatus('saved');
     } catch (err) {
       console.error("Save process error:", err);
       setSaveStatus('error');
+    } finally {
+      isSavingRef.current = false;
     }
   };
 
   const handleCreateChapter = async (groupTitleOverride?: string) => {
-    const nextOrder = chapters.length > 0 ? Math.max(...chapters.map(c => c.order || 0)) + 1 : 1;
+    const nextOrder = chapters.length > 0 ? Math.max(0, ...chapters.map(c => c.order || 0)) + 1 : 1;
     
     // Save current content before switching
     const currentChapter = chapters.find(c => c.id === activeChapterId);
@@ -515,20 +514,13 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
     if (!confirm(`TEM CERTEZA? Isso destruirá permanentemente o manuscrito "${project.title}", todos os capítulos e arte associada.`)) return;
     
     try {
-      // Cleanup chapters
-      const chaptersSnap = await getDocs(collection(db, 'projects', project.id, 'chapters'));
-      for (const d of chaptersSnap.docs) {
-        await deleteDoc(d.ref);
-      }
-      // Cleanup chat
-      const chatSnap = await getDocs(collection(db, 'projects', project.id, 'chat'));
-      for (const d of chatSnap.docs) {
-        await deleteDoc(d.ref);
-      }
-      // Cleanup characters
-      const charSnap = await getDocs(collection(db, 'projects', project.id, 'characters'));
-      for (const d of charSnap.docs) {
-        await deleteDoc(d.ref);
+      // Lista exaustiva de todas as subcoleções para evitar dados órfãos
+      const subCollections = ['chapters', 'chat', 'characters', 'art', 'cinematic', 'lore', 'schedules', 'versions', 'notes'];
+      
+      for (const subCol of subCollections) {
+        const snap = await getDocs(collection(db, 'projects', project.id, subCol));
+        // Deleção paralela para performance máxima
+        await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
       }
       // Delete project
       await deleteDoc(doc(db, 'projects', project.id));
@@ -973,8 +965,13 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
                         onKeyDown={handleKeyDown}
                         onChange={(e) => {
                           updateContentWithUndo(e.target.value);
-                          e.target.style.height = 'auto';
-                          e.target.style.height = (e.target.scrollHeight) + 'px';
+                          // Auto-resize sem flicker
+                          const target = e.target;
+                          const minHeight = 500;
+                          if (target.scrollHeight > minHeight) {
+                            target.style.height = 'auto';
+                            target.style.height = `${target.scrollHeight}px`;
+                          }
                         }}
                         placeholder="Escreva algo grandioso..."
                         className="w-full resize-none border-none focus:ring-0 text-[#EAEAEA]/80 p-0 placeholder:text-white/5 bg-transparent leading-[2.6] text-xl font-medium tracking-wide selection:bg-editorial-accent/30 transition-all min-h-[50vh] custom-scrollbar"

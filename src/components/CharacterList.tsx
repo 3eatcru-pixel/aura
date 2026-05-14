@@ -39,8 +39,18 @@ export function CharacterList({ project, characters: propCharacters = [], chapte
     if (!formData.name) return alert("Digite o nome do personagem primeiro.");
     setIsGenerating(true);
     try {
-      const fullManuscript = chapters.map(c => `[${c.title}]\n${c.content}`).join('\n\n');
-      const storyContext = fullManuscript.slice(-6000) || "";
+      // Otimização: Acumula contexto de trás para frente até atingir o limite
+      let storyContext = "";
+      const limit = 6000;
+      for (let i = chapters.length - 1; i >= 0; i--) {
+        const chapterText = `[${chapters[i].title}]\n${chapters[i].content}\n\n`;
+        if ((storyContext.length + chapterText.length) > limit) {
+          storyContext = chapterText.slice(-(limit - storyContext.length)) + storyContext;
+          break;
+        }
+        storyContext = chapterText + storyContext;
+      }
+
       const result = await deepCharacterDesign(formData.name, storyContext);
       if (result) {
         setFormData(prev => ({
@@ -100,27 +110,36 @@ export function CharacterList({ project, characters: propCharacters = [], chapte
 
   const refactorNameInChapters = async (oldName: string, newName: string) => {
     try {
-      const batch = writeBatch(db);
-      let count = 0;
-      
-      const nameRegex = new RegExp(`\\b${oldName}\\b`, 'g');
+      // Escapa caracteres especiais para evitar que nomes com "." ou "()" quebrem a regex
+      const escapedName = oldName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const nameRegex = new RegExp(`\\b${escapedName}\\b`, 'g');
 
-      chapters.forEach(chapter => {
-        if (nameRegex.test(chapter.content)) {
+      const updatedChapters = chapters.filter(c => nameRegex.test(c.content));
+      if (updatedChapters.length === 0) return;
+
+      // Processamento em chunks de 500 (limite do Firestore)
+      const CHUNK_SIZE = 490;
+      let totalUpdated = 0;
+
+      for (let i = 0; i < updatedChapters.length; i += CHUNK_SIZE) {
+        const chunk = updatedChapters.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        
+        chunk.forEach(chapter => {
           const newContent = chapter.content.replace(nameRegex, newName);
           const chapterRef = doc(db, 'projects', project.id, 'chapters', chapter.id);
           batch.update(chapterRef, {
             content: newContent,
             updatedAt: serverTimestamp()
           });
-          count++;
-        }
-      });
+          totalUpdated++;
+        });
 
-      // Só executa o commit se houver alterações para evitar erro de batch vazio
-      if (count > 0) {
         await batch.commit();
-        alert(`Sincronização Literária Concluída! ${count} capítulo(s) foram atualizados para refletir o novo nome.`);
+      }
+
+      if (totalUpdated > 0) {
+        alert(`Sincronização Literária Concluída! ${totalUpdated} capítulo(s) foram atualizados.`);
       }
     } catch (err) {
       console.error("Erro ao refatorar nome:", err);
@@ -153,8 +172,18 @@ export function CharacterList({ project, characters: propCharacters = [], chapte
     if (!formData.name) return alert("Digite o nome do personagem primeiro.");
     setIsGenerating(true);
     try {
-      const fullManuscript = chapters.map(c => `[${c.title}]\n${c.content}`).join('\n\n');
-      const storyContext = fullManuscript.slice(-6000) || "";
+      // Otimização de contexto reverso para evitar consumo excessivo de RAM
+      let storyContext = "";
+      const limit = 6000;
+      for (let i = chapters.length - 1; i >= 0; i--) {
+        const chapterText = `[${chapters[i].title}]\n${chapters[i].content}\n\n`;
+        if ((storyContext.length + chapterText.length) > limit) {
+          storyContext = chapterText.slice(-(limit - storyContext.length)) + storyContext;
+          break;
+        }
+        storyContext = chapterText + storyContext;
+      }
+
       const result = await generateAutoCharacterLore(formData.name, storyContext);
       setFormData(prev => ({
         ...prev,
@@ -171,8 +200,18 @@ export function CharacterList({ project, characters: propCharacters = [], chapte
   const handleDetectCharacters = async () => {
     setIsAiLoading(true);
     try {
-      const fullManuscript = chapters.map(c => `[${c.title}]\n${c.content}`).join('\n\n');
-      const context = fullManuscript.slice(-10000); // Analysis context
+      // Otimização de contexto reverso para detecção
+      let context = "";
+      const limit = 10000;
+      for (let i = chapters.length - 1; i >= 0; i--) {
+        const chapterText = `[${chapters[i].title}]\n${chapters[i].content}\n\n`;
+        if ((context.length + chapterText.length) > limit) {
+          context = chapterText.slice(-(limit - context.length)) + context;
+          break;
+        }
+        context = chapterText + context;
+      }
+
       const existingNamesList = characters.map(c => c.name);
       const detectedNames = await detectCharacters(context, existingNamesList);
       

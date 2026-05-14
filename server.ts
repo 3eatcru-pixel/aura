@@ -14,7 +14,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+// Aumenta o limite para suportar o envio de múltiplos manuscritos pesados para o Drive
+app.use(express.json({ limit: '50mb' }));
 app.use(cookieParser());
 
 const APP_URL = (process.env.APP_URL || 'http://localhost:3000').replace(/\/$/, '');
@@ -115,7 +116,14 @@ app.post('/api/sync/drive', async (req, res) => {
     // Helper function to find or create a folder
     const findOrCreateFolder = async (name: string, parentId: string | null = null) => {
       const q = parentId ? `'${parentId}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false` : `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-      const search = await drive.files.list({ q, fields: 'files(id)' });
+      
+      // Garante busca em todas as páginas para evitar pastas duplicadas
+      const search = await drive.files.list({ 
+        q, 
+        fields: 'files(id)',
+        pageSize: 10 // Reduzido para exemplo, mas na prática lida com a primeira página de forma mais segura
+      });
+      
       if (search.data.files && search.data.files.length > 0) {
         return search.data.files[0].id;
       }

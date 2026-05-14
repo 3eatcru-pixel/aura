@@ -106,26 +106,35 @@ export function LoreManager({ project, chapters = [], initialAssistantOpen = fal
 
   const refactorLoreInChapters = async (oldTitle: string, newTitle: string) => {
     try {
-      const batch = writeBatch(db);
-      let count = 0;
       const escapedTitle = oldTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const loreRegex = new RegExp(`\\b${escapedTitle}\\b`, 'g');
       
-      chapters.forEach(chapter => {
-        if (loreRegex.test(chapter.content)) {
+      const updatedChapters = chapters.filter(c => loreRegex.test(c.content));
+      if (updatedChapters.length === 0) return;
+
+      // Processamento em chunks de 500 (limite do Firestore)
+      const CHUNK_SIZE = 490;
+      let totalUpdated = 0;
+
+      for (let i = 0; i < updatedChapters.length; i += CHUNK_SIZE) {
+        const chunk = updatedChapters.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        
+        chunk.forEach(chapter => {
           const newContent = chapter.content.replace(loreRegex, newTitle);
           const chapterRef = doc(db, 'projects', project.id, 'chapters', chapter.id);
           batch.update(chapterRef, {
             content: newContent,
             updatedAt: serverTimestamp()
           });
-          count++;
-        }
-      });
+          totalUpdated++;
+        });
 
-      if (count > 0) {
         await batch.commit();
-        alert(`Sincronização concluída! ${count} capítulo(s) atualizados.`);
+      }
+
+      if (totalUpdated > 0) {
+        alert(`Sincronização concluída! ${totalUpdated} capítulo(s) atualizados.`);
       }
     } catch (err) {
       console.error(err);

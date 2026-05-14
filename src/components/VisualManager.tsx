@@ -142,6 +142,7 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
         await addDoc(collection(db, 'projects', project.id, 'art'), {
           ...formData,
           createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(), // Garante que novos assets tenham timestamp de atualização
         });
       }
       

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Project, Universe } from '../types';
 import { Plus, Github, Search, Book, Clock, ChevronRight, Globe, Layers, Layout, BookOpen, Cloud, RefreshCw, CheckCircle2, Trash2, Dices, Sparkles, Wand2, X, Users, Zap, Shield } from 'lucide-react';
-import { collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, cn } from '../lib/utils';
@@ -137,6 +137,18 @@ export function Dashboard({ projects, onSelectProject }: DashboardProps) {
   const handleDeleteUniverse = async (universeId: string, title: string) => {
     if (!confirm(`Deseja realmente apagar o universo "${title}"? Os projetos vinculados não serão apagados, mas ficarão orfãos (Solo Stories).`)) return;
     try {
+      // Desvincula projetos antes de deletar o universo
+      const batch = writeBatch(db);
+      const universeProjects = projects.filter(p => p.universeId === universeId);
+      
+      universeProjects.forEach(p => {
+        batch.update(doc(db, 'projects', p.id), { 
+          universeId: null,
+          updatedAt: serverTimestamp() 
+        });
+      });
+      await batch.commit();
+
       await deleteDoc(doc(db, 'universes', universeId));
       if (selectedUniverseId === universeId) setSelectedUniverseId('solo');
     } catch (err) {
