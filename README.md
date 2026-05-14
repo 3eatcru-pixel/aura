@@ -1,20 +1,53 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# AURA • Sovereign Narrative OS
 
-# Run and deploy your AI Studio app
+AURA é um Sistema Operacional Narrativo de alta fidelidade projetado para escritores, roteiristas e arquitetos de mundos. Construído com uma filosofia **Client-Side First**, ele permite que usuários criem obras complexas com custo operacional zero para o provedor.
 
-This contains everything you need to run your app locally.
+## 🚀 Arquitetura de Custo Zero (BYOK)
 
-View your app in AI Studio: https://ai.studio/apps/faca5298-0cea-4a99-9026-c265c51b538a
+O projeto utiliza o modelo **Bring Your Own Key**:
+- **IA Principal:** Google Gemini (autenticado via OAuth do próprio usuário).
+- **IA Adicional:** GPT-4o, DeepSeek e DeepL (chaves API providas pelo usuário e salvas localmente).
+- **Storage:** Google Drive pessoal do usuário para backups e sincronização.
+- **Database:** Firebase Spark (Metadados e configurações).
 
-## Run Locally
+## 🛠 Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend:** React + TypeScript + Vite
+- **Estilização:** Tailwind CSS + Framer Motion (Animações editoriais)
+- **Backend:** Express (Serverless Ready para Vercel)
+- **Canvas:** Fabric.js (Direção Cinematográfica)
+- **Auth/DB:** Firebase (Spark Plan)
 
+## 📦 Instalação e Desenvolvimento
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. Clone o repositório:
+   ```bash
+   git clone [url-do-repo]
+   cd aura
+   ```
+
+2. Instale as dependências:
+   ```bash
+   npm install
+   ```
+
+3. Configure as variáveis de ambiente (`.env`):
+   ```env
+   GOOGLE_CLIENT_ID=...
+   GOOGLE_CLIENT_SECRET=...
+   APP_URL=http://localhost:3000
+   # Firebase Config (Vite)
+   VITE_FIREBASE_API_KEY=...
+   ```
+
+4. Inicie o ambiente de desenvolvimento:
+   ```bash
+   npm run dev
+   ```
+
+## ☁️ Deploy (Vercel)
+
+O projeto está configurado para deploy imediato na Vercel através do arquivo `vercel.json`. As rotas de API em `server.ts` são tratadas como Node.js Serverless Functions.
+
+---
+ desenvolvido por **3eat Cru**

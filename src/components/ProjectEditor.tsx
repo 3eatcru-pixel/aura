@@ -4,7 +4,7 @@ import { doc, updateDoc, serverTimestamp, collection, onSnapshot, addDoc, query,
 import { db, auth } from '../lib/firebase';
 import { Music, Sparkles, Save, History, Users, Settings2, Trash2, X, ChevronRight, Layout, PenTool, Image as ImageIcon, Lightbulb, Check, AlertCircle, Maximize2, Minimize2, Search, Coffee, Eye, FileText, Zap, Book, Plus, GripVertical, Globe, RotateCcw, RotateCw, Clapperboard, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { detectCharacters, getWritingSuggestion, analyzeManuscript, ImprovementSuggestion, researchTopic, getAutocomplete, getSynonyms, runIntelligentAudit } from '../services/aiService';
+import { detectCharacters, getWritingSuggestion, analyzeManuscript, ImprovementSuggestion, researchTopic, getAutocomplete, getSynonyms, runIntelligentAudit, translateText } from '../services/aiService';
 import { cn, formatDate } from '../lib/utils';
 import { VisualManager } from './VisualManager';
 import { LoreManager } from './LoreManager';
@@ -81,6 +81,7 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
   const [isAuditLoading, setIsAuditLoading] = useState(false);
   const [researchQuery, setResearchQuery] = useState('');
   const [researchResult, setResearchResult] = useState('');
+  const [isTranslating, setIsTranslating] = useState(false);
   const [isResearchLoading, setIsResearchLoading] = useState(false);
   const [sessionWordCount, setSessionWordCount] = useState(0);
   const initialWordCount = useRef(0);
@@ -580,6 +581,25 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
     }
   };
 
+  const handleTranslate = async () => {
+    const targetLang = prompt("Para qual idioma deseja traduzir? (Ex: EN, PT, ES, FR, JA)");
+    if (!targetLang || !content.trim()) return;
+
+    setIsTranslating(true);
+    try {
+      const translated = await translateText(content, targetLang.toUpperCase());
+      if (translated) {
+        if (confirm("Tradução concluída. Deseja substituir o conteúdo atual pelo texto traduzido?")) {
+          updateContentWithUndo(translated);
+        }
+      }
+    } catch (err) {
+      alert("Erro na tradução: Verifique sua chave DeepL nos Ajustes de IA.");
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const handleAnalyze = async (mode: 'improvements' | 'consistency' | 'show-don-t-tell') => {
     if (!content.trim()) return;
     if (saveStatus === 'saving') {
@@ -946,6 +966,14 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
                      <div className="w-px h-6 bg-white/5 mx-1" />
                      <button onClick={() => setShowManuscript(!showManuscript)} className="p-3 text-white/40 hover:text-white transition-all"><Book className="w-4 h-4" /></button>
                      <button onClick={() => setShowAudit(!showAudit)} className="p-3 text-white/40 hover:text-white transition-all"><BarChart3 className="w-4 h-4" /></button>
+                     <button 
+                       onClick={handleTranslate} 
+                       disabled={isTranslating || !content.trim()}
+                       className={cn("p-3 transition-all", isTranslating ? "text-editorial-accent animate-pulse" : "text-white/40 hover:text-white")}
+                       title="Traduzir Página (DeepL)"
+                     >
+                        <Globe className="w-4 h-4" />
+                     </button>
                      <div className="w-px h-6 bg-white/5 mx-1" />
                      <button onClick={handleAiAssist} className="p-3 text-editorial-accent hover:text-white transition-all"><Sparkles className="w-4 h-4" /></button>
                      <button onClick={() => handleAnalyze('improvements')} className="p-3 text-editorial-accent hover:text-white transition-all"><Wand2 className="w-4 h-4" /></button>

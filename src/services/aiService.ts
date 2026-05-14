@@ -1,35 +1,40 @@
 // aura/src/services/aiService.ts
-import { AuditReport } from "../types";
 
-// Helper para limpar e parsear JSON de qualquer modelo (remove blocos Markdown)
+// Helper para limpar e parsear JSON de qualquer modelo (remove Markdown blocks)
 function parseAiResponse(text: string) {
   try {
-    // Remove blocos de código markdown se presentes (```json ... ``` ou ``` ...)
     const cleanText = text.replace(/```json|```/g, '').trim();
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("Falha crítica ao parsear resposta da IA. Texto bruto:", text);
+    console.error("Erro ao parsear resposta da IA:", text);
     return null;
   }
 }
 
-// Helper para obter o provedor preferido do usuário
-function getAiProvider(): 'gemini' | 'gpt' | 'deepseek' {
-  return (localStorage.getItem('aura_ai_provider') as any) || 'gemini';
-}
-
 // Helper genérico para chamar o proxy do servidor para modelos de IA (Gemini, GPT, DeepSeek)
-async function callAiProxy(model: 'gemini' | 'gpt' | 'deepseek', payload: any): Promise<{ text: string }> {
+async function callAiProxy(model: 'gemini' | 'gpt' | 'deepseek', payload: any) {
   const endpoints = {
     gemini: '/api/ai/gemini-proxy',
     gpt: '/api/ai/gpt-proxy',
     deepseek: '/api/ai/deepseek-proxy'
   };
   
-  // Recupera chaves privadas do usuário salvas localmente
+  const endpoint = endpoints[model];
+
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (localStorage.getItem('aura_openai_key')) headers['x-user-openai-key'] = localStorage.getItem('aura_openai_key')!;
-  if (localStorage.getItem('aura_deepseek_key')) headers['x-user-deepseek-key'] = localStorage.getItem('aura_deepseek_key')!;
+  
+  // Validação preventiva BYOK
+  if (model === 'gpt') {
+    const key = localStorage.getItem('aura_openai_key');
+    if (!key) throw new Error('Chave OpenAI não configurada. Vá em Ajustes de IA.');
+    headers['x-user-openai-key'] = key;
+  }
+
+  if (model === 'deepseek') {
+    const key = localStorage.getItem('aura_deepseek_key');
+    if (!key) throw new Error('Chave DeepSeek não configurada. Vá em Ajustes de IA.');
+    headers['x-user-deepseek-key'] = key;
+  }
 
   const response = await fetch(endpoint, {
     method: 'POST',
@@ -46,7 +51,7 @@ async function callAiProxy(model: 'gemini' | 'gpt' | 'deepseek', payload: any): 
 }
 
 // Helper genérico para chamar o proxy do servidor para tradução (DeepL)
-async function callTranslationProxy(payload: any): Promise<{ translatedText: string }> {
+async function callTranslationProxy(payload: any) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (localStorage.getItem('aura_deepl_key')) headers['x-user-deepl-key'] = localStorage.getItem('aura_deepl_key')!;
 
@@ -61,7 +66,7 @@ async function callTranslationProxy(payload: any): Promise<{ translatedText: str
     throw new Error(err.error || 'Erro no Tradutor (DeepL)');
   }
   
-  return await response.json();
+  return await response.json(); // Espera { translatedText: "..." }
 }
 
 export async function detectCharacters(text: string, existingCharacters: string[]) {
@@ -72,8 +77,7 @@ export async function detectCharacters(text: string, existingCharacters: string[
   Texto: "${text}"`;
 
   try {
-    const provider = getAiProvider();
-    const data = await callAiProxy(provider, { prompt, messages: [{ role: 'user', content: prompt }] });
+    const data = await callAiProxy('gemini', { prompt });
     return parseAiResponse(data.text) || [];
   } catch (error) {
     console.error("Error detecting characters:", error);
@@ -97,28 +101,15 @@ export async function getWritingSuggestion(context: string, currentContent: stri
   3. Não explique o que fez, apenas retorne o texto criativo.`;
 
   try {
-    const provider = getAiProvider();
-    let data;
-    if (provider === 'gemini') {
-      data = await callAiProxy('gemini', { prompt, model: "gemini-2.0-flash" });
-    } else {
-      data = await callAiProxy(provider, { 
-        messages: [{ role: 'user', content: prompt }] 
-      });
-    }
+    const data = await callAiProxy('gemini', { 
+      prompt,
+      model: "gemini-2.0-flash"
+    });
     return data.text;
   } catch (error) {
     console.error("Error getting writing suggestion:", error);
     return "";
   }
-}
-
-export interface ImprovementSuggestion {
-  id: string;
-  type: 'grammar' | 'style' | 'consistency' | 'plot';
-  originalText: string;
-  suggestedText: string;
-  explanation: string;
 }
 
 export async function analyzeManuscript(content: string, context: string, mode: 'improvements' | 'consistency' | 'show-don-t-tell', lore?: string) {
@@ -152,34 +143,27 @@ export async function analyzeManuscript(content: string, context: string, mode: 
   }
 
   try {
-    const provider = getAiProvider();
-    let data;
-    if (provider === 'gemini') {
-      data = await callAiProxy('gemini', { 
-        prompt,
-        model: "gemini-2.0-flash",
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                id: { type: "string" },
-                type: { type: "string" },
-                originalText: { type: "string" },
-                suggestedText: { type: "string" },
-                explanation: { type: "string" }
-              },
-              required: ["id", "type", "originalText", "suggestedText", "explanation"]
-            }
+    const data = await callAiProxy('gemini', { 
+      prompt,
+      model: "gemini-2.0-flash",
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              id: { type: "string" },
+              type: { type: "string" },
+              originalText: { type: "string" },
+              suggestedText: { type: "string" },
+              explanation: { type: "string" }
+            },
+            required: ["id", "type", "originalText", "suggestedText", "explanation"]
           }
         }
-      });
-    } else {
-      // Para OpenAI/DeepSeek, confiamos no prompt e no parseAiResponse
-      data = await callAiProxy(provider, { messages: [{ role: 'user', content: prompt }] });
-    }
+      }
+    });
 
     return parseAiResponse(data.text) || [];
   } catch (error) {
@@ -202,13 +186,13 @@ export async function deepCharacterDesign(name: string, storyContext: string) {
   Retorne um objeto JSON com estas chaves em português: description, traits, goals, fears, vocalTone, history.`;
 
   try {
-    const provider = getAiProvider();
-    let data;
-    if (provider === 'gemini') {
-      data = await callAiProxy('gemini', { prompt, model: "gemini-2.0-flash", config: { responseMimeType: "application/json" } });
-    } else {
-      data = await callAiProxy(provider, { messages: [{ role: 'user', content: prompt }] });
-    }
+    const data = await callAiProxy('gemini', { 
+      prompt,
+      model: "gemini-2.0-flash",
+      config: {
+        responseMimeType: "application/json"
+      }
+    });
     return parseAiResponse(data.text) || {};
   } catch (error) {
     console.error("Error in deepCharacterDesign:", error);
@@ -234,11 +218,7 @@ export async function researchTopic(query: string) {
   }
 }
 
-export async function chatBotResponse(
-  messages: { role: string, text: string }[], 
-  projectContext: string,
-  provider: 'gemini' | 'gpt' | 'deepseek' = (localStorage.getItem('aura_ai_provider') as any) || 'gemini'
-) {
+export async function chatBotResponse(messages: { role: string, text: string }[], projectContext: string, provider: 'gemini' | 'gpt' | 'deepseek' = 'gemini') {
   const systemInstruction = `Você é o "Scribe AI", uma inteligência de elite que atua como Diretor Criativo, Arquiteto de UX, Editor Narrativo e Lead QA.
   Sua função é co-criar e auditar o projeto do usuário com um olhar crítico e artístico.
   
@@ -265,11 +245,8 @@ export async function chatBotResponse(
         systemInstruction: { parts: [{ text: systemInstruction }] }
       });
     } else {
-      // Provedores OpenAI-Compatible (GPT e DeepSeek)
-      const formattedMessages = messages.map(m => ({ 
-        role: m.role === "user" ? "user" : "assistant", 
-        content: m.text 
-      }));
+      // GPT e DeepSeek usam formato de mensagens padrão
+      const formattedMessages = messages.map(m => ({ role: m.role, content: m.text }));
       data = await callAiProxy(provider, { 
         messages: formattedMessages,
         systemInstruction: systemInstruction 

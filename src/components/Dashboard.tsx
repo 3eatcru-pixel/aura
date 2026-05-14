@@ -12,6 +12,87 @@ interface DashboardProps {
   key?: string;
 }
 
+// Componente extraído para gerenciar chaves BYOK de forma performática
+const ApiKeySettingsModal = ({ onClose, onSyncMessage }: { onClose: () => void, onSyncMessage: (msg: {text: string, type: 'success' | 'error'}) => void }) => {
+  const [keys, setKeys] = useState({
+    provider: localStorage.getItem('aura_ai_provider') || 'gemini',
+    openai: localStorage.getItem('aura_openai_key') || '',
+    deepseek: localStorage.getItem('aura_deepseek_key') || '',
+    deepl: localStorage.getItem('aura_deepl_key') || '',
+  });
+
+  const saveKeys = () => {
+    localStorage.setItem('aura_ai_provider', keys.provider);
+    localStorage.setItem('aura_openai_key', keys.openai);
+    localStorage.setItem('aura_deepseek_key', keys.deepseek);
+    localStorage.setItem('aura_deepl_key', keys.deepl);
+    onSyncMessage({ text: 'Configurações de IA preservadas!', type: 'success' });
+    onClose();
+  };
+
+  const testKey = async (type: string) => {
+    const key = (keys as any)[type];
+    if (!key) return alert(`Por favor, insira a chave ${type} antes de testar.`);
+    
+    try {
+      const resp = await fetch('/api/ai/validate-key', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, key })
+      });
+      const data = await resp.json();
+      if (data.success) alert(`Sucesso: ${data.message}`);
+      else alert(`Falha: ${data.error}`);
+    } catch (err) {
+      alert("Erro de rede ao validar a chave.");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-md bg-[#1a1a1a] border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl"
+      >
+        <div className="flex justify-between items-center">
+          <h3 className="text-xl font-brand tracking-widest text-white uppercase">Assistente BYOK</h3>
+          <button onClick={onClose} className="text-white/20 hover:text-white"><X className="w-6 h-6" /></button>
+        </div>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-[9px] font-black text-editorial-accent uppercase tracking-widest">Provedor Principal</label>
+            <select 
+              value={keys.provider}
+              onChange={e => setKeys({...keys, provider: e.target.value})}
+              className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-editorial-accent transition-all text-xs text-white appearance-none"
+            >
+              <option value="gemini" className="bg-[#1a1a1a]">Google Gemini (via Login)</option>
+              <option value="gpt" className="bg-[#1a1a1a]">OpenAI GPT-4o (BYOK)</option>
+              <option value="deepseek" className="bg-[#1a1a1a]">DeepSeek V3 (BYOK)</option>
+            </select>
+          </div>
+          {['openai', 'deepseek', 'deepl'].map(type => (
+            <div key={type} className="space-y-2">
+              <div className="flex justify-between items-center px-1">
+                <label className="text-[9px] font-black text-editorial-accent uppercase tracking-widest">{type} API Key</label>
+                <button onClick={() => testKey(type)} className="text-[7px] font-black text-white/40 hover:text-white uppercase tracking-tighter">[ Testar ]</button>
+              </div>
+              <input 
+                type="password"
+                value={(keys as any)[type]}
+                onChange={e => setKeys({...keys, [type]: e.target.value})}
+                className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-editorial-accent transition-all text-xs text-white"
+              />
+            </div>
+          ))}
+        </div>
+        <button onClick={saveKeys} className="w-full py-4 bg-editorial-accent text-white rounded-2xl font-black text-[10px] uppercase shadow-neon transition-all">Ativar Plugins de IA</button>
+      </motion.div>
+    </div>
+  );
+};
+
 export function Dashboard({ projects, onSelectProject }: DashboardProps) {
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [isCreatingUniverse, setIsCreatingUniverse] = useState(false);
@@ -189,76 +270,6 @@ export function Dashboard({ projects, onSelectProject }: DashboardProps) {
     return matchesSearch && matchesUniverse;
   });
 
-  // Componente interno para gerenciar chaves BYOK
-  const ApiKeySettingsModal = () => {
-    const [keys, setKeys] = useState({
-      provider: localStorage.getItem('aura_ai_provider') || 'gemini',
-      openai: localStorage.getItem('aura_openai_key') || '',
-      deepseek: localStorage.getItem('aura_deepseek_key') || '',
-      deepl: localStorage.getItem('aura_deepl_key') || '',
-    });
-
-    const saveKeys = () => {
-      localStorage.setItem('aura_ai_provider', keys.provider);
-      localStorage.setItem('aura_openai_key', keys.openai);
-      localStorage.setItem('aura_deepseek_key', keys.deepseek);
-      localStorage.setItem('aura_deepl_key', keys.deepl);
-      setShowApiKeySettings(false);
-      setSyncMessage({ text: 'Configurações de IA preservadas!', type: 'success' });
-    };
-
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md bg-[#1a1a1a] border border-white/10 rounded-[32px] p-8 space-y-6 shadow-2xl"
-        >
-          <div className="flex justify-between items-center">
-            <h3 className="text-xl font-brand tracking-widest text-white uppercase">Assistente BYOK</h3>
-            <button onClick={() => setShowApiKeySettings(false)} className="text-white/20 hover:text-white"><X className="w-6 h-6" /></button>
-          </div>
-          <p className="text-[10px] text-editorial-muted uppercase tracking-widest leading-relaxed">
-            Suas chaves são salvas apenas localmente. O AURA funciona como um plugin que utiliza sua infraestrutura pessoal.
-          </p>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-[9px] font-black text-editorial-accent uppercase tracking-widest">Provedor Principal</label>
-              <select 
-                value={keys.provider}
-                onChange={e => setKeys({...keys, provider: e.target.value})}
-                className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-editorial-accent transition-all text-xs text-white appearance-none"
-              >
-                <option value="gemini" className="bg-[#1a1a1a]">Google Gemini (via Login)</option>
-                <option value="gpt" className="bg-[#1a1a1a]">OpenAI GPT-4o (BYOK)</option>
-                <option value="deepseek" className="bg-[#1a1a1a]">DeepSeek V3 (BYOK)</option>
-              </select>
-            </div>
-
-            {['openai', 'deepseek', 'deepl'].map(type => (
-              <div key={type} className="space-y-2">
-                <label className="text-[9px] font-black text-editorial-accent uppercase tracking-widest">{type} API Key</label>
-                <input 
-                  type="password"
-                  value={(keys as any)[type]}
-                  onChange={e => setKeys({...keys, [type]: e.target.value})}
-                  placeholder={type === 'deepl' ? 'Auth Key' : 'sk-...'}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-editorial-accent transition-all text-xs text-white"
-                />
-              </div>
-            ))}
-          </div>
-          <button 
-            onClick={saveKeys}
-            className="w-full py-4 bg-editorial-accent text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-neon hover:scale-[1.02] transition-all"
-          >
-            Ativar Plugins de IA
-          </button>
-        </motion.div>
-      </div>
-    );
-  };
-
   return (
     <motion.div 
       initial={{ opacity: 0 }}
@@ -266,7 +277,7 @@ export function Dashboard({ projects, onSelectProject }: DashboardProps) {
       className="flex-1 overflow-y-auto custom-scrollbar bg-editorial-bg"
     >
       <AnimatePresence>
-        {showApiKeySettings && <ApiKeySettingsModal />}
+        {showApiKeySettings && <ApiKeySettingsModal onClose={() => setShowApiKeySettings(false)} onSyncMessage={setSyncMessage} />}
       </AnimatePresence>
 
       <div className="max-w-7xl mx-auto px-8 md:px-12 py-12 space-y-12">
@@ -412,7 +423,7 @@ export function Dashboard({ projects, onSelectProject }: DashboardProps) {
                       onClick={handleConnectDrive}
                       className="w-full flex items-center justify-center gap-2 bg-editorial-accent/10 text-editorial-accent py-4 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-editorial-accent hover:text-white transition-all border border-editorial-accent/20"
                     >
-                      Abilitar Nuvem
+                      Habilitar Nuvem
                     </button>
                   ) : (
                     <button 

@@ -23,6 +23,10 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
   const [emotion, setEmotion] = useState('Medo');
   const [activeExpert, setActiveExpert] = useState<'Musa' | 'Editor' | 'Revisor'>('Musa');
   
+  const [provider, setProvider] = useState<'gemini' | 'gpt' | 'deepseek'>(
+    (localStorage.getItem('aura_ai_provider') as any) || 'gemini'
+  );
+
   // Chat States
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -57,6 +61,14 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
     });
     return () => unsub();
   }, [project.id]);
+
+  useEffect(() => {
+    const handleStorageSync = () => {
+      setProvider((localStorage.getItem('aura_ai_provider') as any) || 'gemini');
+    };
+    window.addEventListener('storage', handleStorageSync);
+    return () => window.removeEventListener('storage', handleStorageSync);
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -97,15 +109,20 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
         text: m.text
       }));
 
-      const responseText = await chatBotResponse([...history, { role: 'user', text: userText }], projectContext);
+      const responseText = await chatBotResponse([...history, { role: 'user', text: userText }], projectContext, provider);
 
       await addDoc(collection(db, 'projects', project.id, 'chat'), {
         role: 'assistant',
         text: responseText,
         createdAt: serverTimestamp(),
       });
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      await addDoc(collection(db, 'projects', project.id, 'chat'), {
+        role: 'assistant',
+        text: `⚠️ Erro de Conexão: ${err.message || 'O assistente não pôde processar sua ideia.'}`,
+        createdAt: serverTimestamp(),
+      });
     } finally {
       setIsLoading(false);
     }
@@ -159,7 +176,17 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
   return (
     <div className="flex flex-col h-full bg-[#0d0d0d] border-l border-white/5 shadow-2xl">
       {/* Tabs */}
-      <div className="flex border-b border-white/5 p-2 gap-2">
+      <div className="flex flex-col border-b border-white/5 p-2 gap-2">
+        <div className="flex items-center justify-between px-3 py-1">
+           <span className="text-[7px] font-black text-white/20 uppercase tracking-[0.3em]">Mente Ativa</span>
+           <div className="flex items-center gap-1.5 bg-editorial-accent/10 px-2 py-0.5 rounded-full border border-editorial-accent/20">
+              <div className="w-1 h-1 rounded-full bg-editorial-accent animate-pulse" />
+              <span className="text-[7px] font-black text-editorial-accent uppercase tracking-widest">
+                {provider}
+              </span>
+           </div>
+        </div>
+        <div className="flex gap-2">
         <button
           onClick={() => setActiveTab('assistant')}
           className={cn(

@@ -105,14 +105,13 @@ app.post('/api/ai/gemini-proxy', async (req, res) => {
     const tokens = JSON.parse(tokensStr);
     const client = getOAuthClient();
     
-    // Store initial tokens to check for refresh later
-    const initialAccessToken = tokens.access_token;
-
     client.setCredentials(tokens);
 
-    // Refresh token se necessário (essencial para serverless não perder a conexão)
-    const accessTokenResponse = await client.getAccessToken();
-    const token = accessTokenResponse.token;
+    // Refresh token se necessário (essencial para serverless)
+    // O Google SDK gerencia a expiração automaticamente se houver um refresh_token
+    const { token, res: refreshResponse } = await client.getAccessToken();
+    
+    if (!token) throw new Error('Falha ao obter token de acesso.');
     
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, {
       method: 'POST',
@@ -136,8 +135,10 @@ app.post('/api/ai/gemini-proxy', async (req, res) => {
       throw new Error(data.error?.message || 'Erro na comunicação com o Gemini');
     }
     
-    // Se o token mudou durante a execução, atualiza o cookie do usuário
-    if (client.credentials.access_token !== initialAccessToken) {
+    // Sincronia de Tokens: Se o SDK renovou o token nesta chamada, 
+    // precisamos atualizar o cookie do usuário, senão a próxima chamada falhará.
+    const currentTokens = client.credentials;
+    if (currentTokens.access_token !== tokens.access_token) {
       res.cookie('google_drive_tokens', JSON.stringify(client.credentials), {
         httpOnly: true,
         secure: true,
@@ -163,17 +164,18 @@ app.post('/api/ai/gpt-proxy', async (req, res) => {
   const openaiApiKey = userKey || process.env.OPENAI_API_KEY;
 
   if (!openaiApiKey) {
-    return res.status(401).json({ error: 'Chave de API OpenAI não encontrada. Configure-a no Assistente.' });
+    return res.status(401).json({ error: 'OPENAI_KEY_MISSING', message: 'Configuração necessária: Insira sua chave OpenAI nos Ajustes de IA.' });
   }
 
   const { messages, model, config, systemInstruction } = req.body;
 
   try {
-    // Converte systemInstruction para o formato de mensagens da OpenAI
-    const fullMessages = [...messages];
+    // Converte systemInstruction para o formato de mensagens da OpenAI (System Message)
+    const fullMessages = [];
     if (systemInstruction) {
-      fullMessages.unshift({ role: 'system', content: systemInstruction });
+      fullMessages.push({ role: 'system', content: systemInstruction });
     }
+    fullMessages.push(...messages);
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -182,7 +184,7 @@ app.post('/api/ai/gpt-proxy', async (req, res) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: model || 'gpt-3.5-turbo', // Default to a common GPT model
+        model: model || 'gpt-4o-mini', // Default econômico e potente
         messages: fullMessages,
         ...config
       }),
@@ -191,7 +193,7 @@ app.post('/api/ai/gpt-proxy', async (req, res) => {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.error?.message || 'Erro na comunicação com o GPT');
+      return res.status(response.status).json({ error: 'AI_PROV_ERROR', message: data.error?.message || 'Falha na OpenAI' });
     }
 
     const text = data.choices?.[0]?.message?.content || '';
@@ -260,7 +262,11 @@ app.post('/api/translate/deepl-proxy', async (req, res) => {
   const { text, target_lang, source_lang } = req.body;
 
   try {
-    const response = await fetch('https://api-free.deepl.com/v2/translate', { // Use api-free for free tier
+    // Detecta automaticamente se a chave é Free ou Pro baseada no sufixo
+    const isFree = deeplApiKey.endsWith(':fx');
+    const baseUrl = isFree ? 'https://api-free.deepl.com/v2' : 'https://api.deepl.com/v2';
+
+    const response = await fetch(`${baseUrl}/translate`, {
       method: 'POST',
       headers: {
         'Authorization': `DeepL-Auth-Key ${deeplApiKey}`,
@@ -290,9 +296,30 @@ app.post('/api/translate/deepl-proxy', async (req, res) => {
 // --- Connection Test Endpoint ---
 app.post('/api/ai/validate-key', async (req, res) => {
   const { type, key } = req.body;
-  // Implementar lógica de ping ultra-rápido para cada serviço
-  // Ex: OpenAI chama o endpoint /models com a chave
-  res.json({ success: true, message: 'Chave válida e pronta para uso.' });
+  
+  try {
+    if (type === 'openai') {
+      const resp = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${key}` }
+      });
+      if (!resp.ok) throw new Error('Chave OpenAI inválida ou sem saldo.');
+    } else if (type === 'deepseek') {
+      const resp = await fetch('https://api.deepseek.com/models', {
+        headers: { 'Authorization': `Bearer ${key}` }
+      });
+      if (!resp.ok) throw new Error('Chave DeepSeek inválida ou expirada.');
+    } else if (type === 'deepl') {
+      const resp = await fetch('https://api-free.deepl.com/v2/usage', {
+        headers: { 'Authorization': `DeepL-Auth-Key ${key}` }
+      });
+      if (!resp.ok) throw new Error('Chave DeepL inválida (verifique se é Free ou Pro).');
+    }
+    
+    res.json({ success: true, message: 'Conexão estabelecida com sucesso.' });
+  } catch (error: any) {
+    console.error(`Validation Error (${type}):`, error.message);
+    res.status(401).json({ success: false, error: error.message });
+  }
 });
 
 app.post('/api/sync/drive', async (req, res) => {
