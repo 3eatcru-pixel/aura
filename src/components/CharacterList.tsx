@@ -9,12 +9,13 @@ import { cn } from '../lib/utils';
 
 interface CharacterListProps {
   project: Project;
+  characters?: Character[]; // Make characters prop optional
   chapters?: Chapter[];
   key?: string;
 }
 
-export function CharacterList({ project, chapters = [] }: CharacterListProps) {
-  const [characters, setCharacters] = useState<Character[]>([]);
+export function CharacterList({ project, characters: propCharacters = [], chapters = [] }: CharacterListProps) {
+  const [characters, setCharacters] = useState<Character[]>(propCharacters);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -60,11 +61,8 @@ export function CharacterList({ project, chapters = [] }: CharacterListProps) {
   };
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'projects', project.id, 'characters'), (snap) => {
-      setCharacters(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Character)));
-    });
-    return () => unsub();
-  }, [project.id]);
+    setCharacters(propCharacters);
+  }, [propCharacters]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,6 +117,7 @@ export function CharacterList({ project, chapters = [] }: CharacterListProps) {
         }
       });
 
+      // Só executa o commit se houver alterações para evitar erro de batch vazio
       if (count > 0) {
         await batch.commit();
         alert(`Sincronização Literária Concluída! ${count} capítulo(s) foram atualizados para refletir o novo nome.`);

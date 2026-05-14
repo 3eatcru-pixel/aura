@@ -21,6 +21,7 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
   const [tone, setTone] = useState('Sombrio');
   const [rhythm, setRhythm] = useState('Lento');
   const [emotion, setEmotion] = useState('Medo');
+  const [activeExpert, setActiveExpert] = useState<'Musa' | 'Editor' | 'Revisor'>('Musa');
   
   // Chat States
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -59,7 +60,11 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
 
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+      const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100;
+      if (isAtBottom) {
+        scrollRef.current.scrollTop = scrollHeight;
+      }
     }
   }, [messages]);
 
@@ -82,6 +87,8 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
         Título: ${project.title}
         Descrição: ${project.description || "N/A"}
         Natureza/Gênero: ${project.type || "N/A"}
+        Personagens: ${characters.map(c => `${c.name} (${c.role}): ${c.traits}`).join('; ')}
+        Papel do Assistente: Você está atuando como ${activeExpert}.
         Conteúdo Atual da Página: ${currentContent.slice(-4000) || "Início da história"}
       `;
 
@@ -111,13 +118,18 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
     // For simplicity, we improve the whole context or a significant chunk
     // In a real app, we'd get the current selection
     
+    const textToImprove = currentContent.length > 8000 ? currentContent.slice(-8000) : currentContent;
+
     setIsImproving(true);
     try {
-      const context = `Projeto: ${project.title}. Descrição: ${project.description}`;
-      const improved = await improveWriting(currentContent, context, tone, rhythm, emotion);
+      const context = `Projeto: ${project.title}. Descrição: ${project.description}. Personagens: ${characters.map(c => `${c.name} (${c.role}): ${c.traits}`).join('; ')}. Tom: ${tone}, Ritmo: ${rhythm}, Emoção: ${emotion}`;
+      const improved = await improveWriting(textToImprove, context, tone, rhythm, emotion);
       
-      if (improved && improved !== currentContent) {
-        onReplaceContent(improved);
+      if (improved && improved !== textToImprove) {
+        const updatedContent = currentContent.length > 8000 
+          ? currentContent.slice(0, -8000) + improved 
+          : improved;
+        onReplaceContent(updatedContent);
       }
     } catch (err) {
       console.error(err);
@@ -168,7 +180,27 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-8">
+      {/* Expert Selector inside Panel */}
+      {activeTab === 'assistant' && (
+        <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02]">
+          <div className="flex bg-black/40 rounded-xl p-1 border border-white/5">
+            {(['Musa', 'Editor', 'Revisor'] as const).map((expert) => (
+              <button
+                key={expert}
+                onClick={() => setActiveExpert(expert)}
+                className={cn(
+                  "flex-1 py-2 rounded-lg text-[8px] font-black uppercase tracking-widest transition-all",
+                  activeExpert === expert ? "bg-editorial-accent text-white shadow-neon-small" : "text-white/20 hover:text-white/40"
+                )}
+              >
+                {expert}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-8 scroll-smooth">
         <AnimatePresence mode="wait">
           {activeTab === 'assistant' ? (
             <motion.div
@@ -185,7 +217,7 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
                     <MessageSquare className="w-3.5 h-3.5" />
                  </div>
                  
-                 <div className="space-y-4 max-h-[300px] overflow-y-auto px-2 custom-scrollbar-thin">
+                 <div ref={scrollRef} className="space-y-4 max-h-[400px] overflow-y-auto px-2 custom-scrollbar-thin bg-black/20 rounded-2xl p-4 border border-white/5">
                     {messages.length === 0 ? (
                       <div className="p-10 border border-white/5 bg-white/[0.01] rounded-[32px] text-center space-y-3">
                          <Bot className="w-8 h-8 text-white/10 mx-auto" />
@@ -321,7 +353,10 @@ export function AssistantPanel({ project, currentContent, onReplaceContent, char
                          <span className="text-[8px] font-black uppercase tracking-tighter text-white/40 group-hover:text-white transition-colors truncate max-w-[64px]">{char.name}</span>
                       </div>
                     ))}
-                    <button className="shrink-0 w-16 h-16 rounded-2xl bg-white/2 border border-dashed border-white/10 flex items-center justify-center text-white/10 hover:text-white/30 hover:border-white/30 transition-all">
+                    <button 
+                      className="shrink-0 w-16 h-16 rounded-2xl bg-white/2 border border-dashed border-white/10 flex items-center justify-center text-white/10 hover:text-white/30 hover:border-white/30 transition-all"
+                      title="Gerenciar Elenco"
+                    >
                        <ShieldCheck className="w-6 h-6" />
                     </button>
                  </div>

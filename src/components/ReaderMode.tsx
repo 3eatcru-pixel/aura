@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Project, Chapter, ArtAsset } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { Book, ChevronLeft, ChevronRight, Type, Maximize2, Minimize2, ArrowLeft, Layers, Image as ImageIcon } from 'lucide-react';
@@ -9,16 +9,30 @@ import { cn } from '../lib/utils';
 interface ReaderModeProps {
   project: Project;
   chapters: Chapter[];
+  initialChapterId?: string | null;
   onBack: () => void;
   key?: string;
 }
 
-export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
+export function ReaderMode({ project, chapters, initialChapterId, onBack }: ReaderModeProps) {
   const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg' | 'xl'>('lg');
   const [isFullWidth, setIsFullWidth] = useState(false);
-  const [activeChapterIndex, setActiveChapterIndex] = useState(0);
+  const [fontFamily, setFontFamily] = useState<'serif' | 'sans'>('serif');
+  const readerScrollRef = useRef<HTMLDivElement>(null);
+  const [activeChapterIndex, setActiveChapterIndex] = useState(() => {
+    if (!initialChapterId) return 0;
+    const index = chapters.findIndex(c => c.id === initialChapterId);
+    return index !== -1 ? index : 0;
+  });
   const [viewMode, setViewMode] = useState<'text' | 'visual'>(project.type === 'manga' ? 'visual' : 'text');
   const [visualPanels, setVisualPanels] = useState<ArtAsset[]>([]);
+
+  // Segurança: Ajusta o índice se a lista de capítulos diminuir
+  useEffect(() => {
+    if (activeChapterIndex >= chapters.length && chapters.length > 0) {
+      setActiveChapterIndex(chapters.length - 1);
+    }
+  }, [chapters.length]);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -124,10 +138,29 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
             {isFullWidth ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
           </button>
         </div>
+
+        <div className="h-4 w-px bg-white/10" />
+
+        <div className="flex bg-black/40 border border-white/5 rounded-full p-1 ml-4">
+          <button
+            onClick={() => setFontFamily('serif')}
+            className={cn(
+              "px-3 py-1 rounded-full text-[9px] font-bold transition-all",
+              fontFamily === 'serif' ? "bg-white text-black" : "text-white/40"
+            )}
+          >Serif</button>
+          <button
+            onClick={() => setFontFamily('sans')}
+            className={cn(
+              "px-3 py-1 rounded-full text-[9px] font-bold transition-all",
+              fontFamily === 'sans' ? "bg-white text-black" : "text-white/40"
+            )}
+          >Sans</button>
+        </div>
       </div>
 
       {/* Área de Leitura */}
-      <div className="flex-1 overflow-y-auto scrollbar-hide">
+      <div ref={readerScrollRef} className="flex-1 overflow-y-auto scrollbar-hide">
         <div className={cn(
           "mx-auto transition-all duration-500 py-24 px-8 lg:px-0",
           isFullWidth ? "max-w-5xl" : "max-w-3xl"
@@ -163,7 +196,8 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
               </div>
 
               <div className={cn(
-                "font-serif leading-[2.6] text-white/80 whitespace-pre-wrap transition-all selection:bg-editorial-accent/40 tracking-wide",
+                "leading-[2.6] text-white/80 whitespace-pre-wrap transition-all selection:bg-editorial-accent/40 tracking-wide",
+                fontFamily === 'serif' ? "font-serif" : "font-sans",
                 fontSizes[fontSize]
               )}>
                 {viewMode === 'text' ? (
@@ -172,7 +206,11 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
                   )
                 ) : (
                   <div className="space-y-12 py-10">
-                    {visualPanels.length > 0 ? visualPanels.map((panel, idx) => (
+                    {visualPanels.filter(p => p.pageNumber === (currentChapter.order)).length > 0 ? (
+                      visualPanels
+                        .filter(p => p.pageNumber === (currentChapter.order))
+                        .sort((a, b) => a.title.localeCompare(b.title))
+                        .map((panel, idx) => (
                       <div key={panel.id} className="group flex flex-col gap-4">
                          <div className="relative">
                            <img 
@@ -186,10 +224,10 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
                            </div>
                          </div>
                       </div>
-                    )) : (
+                    ))) : (
                       <div className="text-center py-32 opacity-10">
                          <ImageIcon className="w-16 h-16 mx-auto mb-4" />
-                         <p className="font-serif italic text-2xl">Nenhum painel visual mapeado para este projeto.</p>
+                         <p className="font-serif italic text-2xl">Nenhum painel visual mapeado para esta página.</p>
                       </div>
                     )}
                   </div>
@@ -202,7 +240,7 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
                   <button
                     onClick={() => {
                       setActiveChapterIndex(activeChapterIndex - 1);
-                      document.querySelector('.flex-1')?.scrollTo(0, 0);
+                      readerScrollRef.current?.scrollTo(0, 0);
                     }}
                     className="flex flex-col items-start group"
                   >
@@ -219,7 +257,7 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
                   <button
                     onClick={() => {
                       setActiveChapterIndex(activeChapterIndex + 1);
-                      document.querySelector('.flex-1')?.scrollTo(0, 0);
+                      readerScrollRef.current?.scrollTo(0, 0);
                     }}
                     className="flex flex-col items-end group text-right"
                   >
@@ -246,7 +284,10 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-editorial-accent/95 text-white py-3 px-6 rounded-full shadow-2xl backdrop-blur-sm z-30 border border-white/10">
          <button 
            disabled={activeChapterIndex === 0}
-           onClick={() => setActiveChapterIndex(activeChapterIndex - 1)}
+           onClick={() => {
+             setActiveChapterIndex(activeChapterIndex - 1);
+             readerScrollRef.current?.scrollTo(0, 0);
+           }}
            className="hover:scale-110 disabled:opacity-30 disabled:hover:scale-100 transition-all"
          >
            <ChevronLeft className="w-5 h-5" />
@@ -257,7 +298,10 @@ export function ReaderMode({ project, chapters, onBack }: ReaderModeProps) {
          </div>
          <button 
            disabled={activeChapterIndex === chapters.length - 1}
-           onClick={() => setActiveChapterIndex(activeChapterIndex + 1)}
+           onClick={() => {
+             setActiveChapterIndex(activeChapterIndex + 1);
+             readerScrollRef.current?.scrollTo(0, 0);
+           }}
            className="hover:scale-110 disabled:opacity-30 disabled:hover:scale-100 transition-all"
          >
            <ChevronRight className="w-5 h-5" />

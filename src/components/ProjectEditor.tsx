@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, Character, Chapter } from '../types';
-import { doc, updateDoc, serverTimestamp, collection, onSnapshot, addDoc, query, orderBy, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, collection, onSnapshot, addDoc, query, orderBy, getDocs, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { Music, Sparkles, Save, History, Users, Settings2, Trash2, X, ChevronRight, Layout, PenTool, Image as ImageIcon, Lightbulb, Check, AlertCircle, Maximize2, Minimize2, Search, Coffee, Eye, FileText, Zap, Book, Plus, GripVertical, Globe, RotateCcw, RotateCw, Clapperboard, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -54,14 +54,18 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
 
 interface ProjectEditorProps {
   project: Project;
+  characters: Character[];
+  activeChapterId: string | null;
+  setActiveChapterId: (id: string | null) => void;
+  isZenMode: boolean;
+  setIsZenMode: (val: boolean) => void;
   key?: string;
 }
 
 type EditorTab = 'writing' | 'visual' | 'settings' | 'lore';
 
-export function ProjectEditor({ project }: ProjectEditorProps) {
+export function ProjectEditor({ project, characters, activeChapterId, setActiveChapterId, isZenMode, setIsZenMode }: ProjectEditorProps) {
   const [chapters, setChapters] = useState<Chapter[]>([]);
-  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [content, setContent] = useState('');
   const [activeTab, setActiveTab] = useState<EditorTab>('writing');
   const [architectMode, setArchitectMode] = useState(false);
@@ -71,7 +75,6 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
   const [showManuscript, setShowManuscript] = useState(false);
   const [showAudit, setShowAudit] = useState(false);
   const [showDirector, setShowDirector] = useState(false);
-  const [isZenMode, setIsZenMode] = useState(false);
   const [showResearch, setShowResearch] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [auditReport, setAuditReport] = useState<AuditReport | null>(null);
@@ -87,7 +90,6 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     type: project.type 
   });
   const [versions, setVersions] = useState<any[]>([]);
-  const [characters, setCharacters] = useState<Character[]>([]);
   const [lores, setLores] = useState<any[]>([]);
   const [suggestions, setSuggestions] = useState<ImprovementSuggestion[]>([]);
   const [activeSuggestionId, setActiveSuggestionId] = useState<string | null>(null);
@@ -103,6 +105,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
   
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastUndoPush = useRef<number>(Date.now());
   const autocompleteTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -113,22 +116,22 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
         setChapters(caps);
         
         // Se houver capítulos e nenhum estiver ativo, ativa o primeiro
+        const currentActive = caps.find(c => c.id === activeChapterId);
         if (caps.length > 0 && !activeChapterId) {
           const first = caps[0];
           setActiveChapterId(first.id);
           setContent(first.content || '');
           initialWordCount.current = first.content?.split(/\s+/).filter(x => x).length || 0;
-        } 
+        } else if (currentActive) {
+           // Mantém o conteúdo em sincronia se vier de fora
+           if (content === '') setContent(currentActive.content || '');
+        }
         // Se não houver capítulos, cria o primeiro
         else if (caps.length === 0 && snap.metadata.fromCache === false) {
            handleCreateChapter("Página 1");
         }
       }
     );
-
-    const unsubChars = onSnapshot(collection(db, 'projects', project.id, 'characters'), (snap) => {
-      setCharacters(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Character)));
-    });
 
     const unsubLore = onSnapshot(collection(db, 'projects', project.id, 'lore'), (snap) => {
       setLores(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -143,7 +146,6 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
     return () => {
       unsubChapters();
-      unsubChars();
       unsubLore();
       unsubVersions();
     };
@@ -152,15 +154,18 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
   useEffect(() => {
     const currentChapter = chapters.find(c => c.id === activeChapterId);
     if (!currentChapter) return;
-
+  
     const currentWords = content.split(/\s+/).filter(x => x).length;
-    setSessionWordCount(Math.max(0, currentWords - initialWordCount.current));
-
+    setSessionWordCount(currentWords - initialWordCount.current);
+  
     if (content !== currentChapter.content) {
       setSaveStatus('saving');
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       // Autosave after 5 seconds of inactivity
       saveTimeoutRef.current = setTimeout(handleSave, 5000); 
+    } else if (saveStatus === 'saving') {
+      // If content is the same as currentChapter.content, but status is 'saving', it means save just completed or was cancelled.
+      setSaveStatus('saved');
     }
 
     return () => {
@@ -212,8 +217,15 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
   const updateContentWithUndo = (newContent: string) => {
     if (newContent === content) return;
-    setUndoStack(prev => [...prev.slice(-49), content]); // Keep last 50 states
-    setRedoStack([]);
+    
+    // Debounce: Apenas empilha no Undo se passaram 3 segundos desde o último "ponto de restauração"
+    const now = Date.now();
+    if (now - lastUndoPush.current > 3000) {
+      setUndoStack(prev => [...prev.slice(-49), content]);
+      setRedoStack([]);
+      lastUndoPush.current = now;
+    }
+
     setContent(newContent);
   };
 
@@ -238,7 +250,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     if (
       !activeChapterId || 
       !currentChapter || 
-      content === currentChapter.content || 
+      content === currentChapter.content || // Only save if content has actually changed
       saveStatus === 'saving'
     ) return;
     
@@ -247,13 +259,18 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
       const chapterPath = `projects/${project.id}/chapters/${activeChapterId}`;
       const projectPath = `projects/${project.id}`;
       
+      // Agregar conteúdo de todos os capítulos para o documento principal (sincronização Drive/Dashboard)
+      const fullContent = chapters
+        .map(c => c.id === activeChapterId ? content : (c.content || ""))
+        .join("\n\n");
+
       await updateDoc(doc(db, chapterPath), {
         content: content,
         updatedAt: serverTimestamp(),
       }).catch(err => handleFirestoreError(err, OperationType.UPDATE, chapterPath));
       
-      // Também atualiza o updatedAt do projeto para refletir atividade
       await updateDoc(doc(db, projectPath), {
+        currentContent: fullContent,
         updatedAt: serverTimestamp()
       }).catch(err => handleFirestoreError(err, OperationType.UPDATE, projectPath));
       
@@ -317,13 +334,18 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
     setSaveStatus('saving');
     try {
+      const batch = writeBatch(db);
       const groupPages = chapters.filter(c => (c.groupTitle?.trim() || "Páginas Avulsas") === oldGroup);
-      for (const page of groupPages) {
-        await updateDoc(doc(db, 'projects', project.id, 'chapters', page.id), {
+      
+      groupPages.forEach(page => {
+        const pageRef = doc(db, 'projects', project.id, 'chapters', page.id);
+        batch.update(pageRef, {
           groupTitle: newGroupName,
           updatedAt: serverTimestamp()
         });
-      }
+      });
+      
+      await batch.commit();
       setSaveStatus('saved');
     } catch (error) {
       console.error(error);
@@ -331,7 +353,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     }
   };
 
-  const handleChapterSwitch = (chapterId: string) => {
+  const handleChapterSwitch = async (chapterId: string) => {
     // Switch tab even if it's the same chapter, to make it "open"
     setActiveTab('writing');
     setShowManuscript(false);
@@ -339,8 +361,8 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     if (chapterId === activeChapterId) return;
 
     const currentChapter = chapters.find(c => c.id === activeChapterId);
-    if (currentChapter && content !== currentChapter.content) {
-      handleSave();
+    if (currentChapter && content !== currentChapter.content) { // Only save if content has changed
+      await handleSave();
     }
     const target = chapters.find(c => c.id === chapterId);
     if (target) {
@@ -364,7 +386,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
     if (newSubtitle === null) return;
     
     const newGroup = prompt(`Nome do Arco / Capítulo:${groupsHint}\n(Ex: Arco 1: O Início, Capítulo 1, Prólogo)`, chapter?.groupTitle || "");
-    if (newGroup === null) return;
+    if (newGroup === null) return; // Allow empty string for no group
 
     const ambientUrl = prompt("Link de Áudio Ambiente (YouTube/MP3 URL):", chapter?.ambientAudioUrl || '');
     if (ambientUrl === null) return;
@@ -384,7 +406,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
   };
 
   const handleUpdatePageMetadata = async (chapterId: string, field: string, value: string) => {
-    const path = `projects/${project.id}/chapters/${chapterId}`;
+    const path = `projects/${project.id}/chapters/${chapterId}`; // Corrected path
     try {
       await updateDoc(doc(db, path), {
         [field]: value,
@@ -408,7 +430,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
       if (activeChapterId === chapterId) {
         const remaining = chapters.filter(c => c.id !== chapterId);
         if (remaining.length > 0) {
-          handleChapterSwitch(remaining[0].id);
+          await handleChapterSwitch(remaining[0].id);
         }
       }
     } catch (err) {
@@ -538,13 +560,23 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
       alert("Aguarde a sincronização do manuscrito antes de solicitar assistência.");
       return;
     }
-    const instruction = prompt("O que você gostaria que a IA fizesse? (Ex: 'continue a cena', 'melhore o diálogo', 'descreva o ambiente')");
+    const instruction = prompt("O que você gostaria que a IA fizesse? (Ex: 'continue a cena', 'melhore o diálogo', 'descreva o ambiente', 'sugira um plot twist')");
     if (!instruction) return;
 
     setIsAiLoading(true);
     try {
+      const loreContext = lores.map(l => `[${l.title}]: ${l.content}`).join('\n');
+      const charContext = characters.map(c => 
+        `${c.name} (${c.role}): ${c.traits}.`
+      ).join('\n');
+      
+      const fullContext = `
+        DESCRIÇÃO DO PROJETO: ${project.description}
+        LORE/MUNDO: ${loreContext}
+        PERSONAGENS: ${charContext}
+      `;
       const storyContext = content.slice(-2000); // Send last 2000 chars as context
-      const suggestion = await getWritingSuggestion(project.description || "", storyContext, instruction);
+      const suggestion = await getWritingSuggestion(fullContext, storyContext, instruction);
       if (suggestion) {
         setContent(prev => prev + "\n" + suggestion);
       }
@@ -618,7 +650,10 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
       if (!textarea) return;
 
       const cursor = textarea.selectionStart;
-      const textBefore = content.slice(0, cursor);
+      // Use a larger slice for context to AI, but only the immediate text for autocomplete trigger
+      const textBeforeForAI = content.slice(0, cursor);
+      const lastWord = textBeforeForAI.split(/\s+/).pop() || '';
+      const textBefore = textBeforeForAI;
       const textAfter = content.slice(cursor);
 
       // Only autocomplete if we are at the end of a sentence or word (space)
@@ -630,7 +665,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
 
       setIsAutocompleteLoading(true);
       try {
-        const loreText = `Contexto: ${project.description}. Personagens: ${characters.map(c => c.name).join(', ')}.`;
+        const loreText = `Contexto: ${project.description}. Personagens: ${characters.map(c => c.name).join(', ')}. Lore: ${lores.map(l => l.title).join(', ')}.`;
         const suggestion = await getAutocomplete(loreText, textBefore.slice(-500), textAfter.slice(0, 500));
         setAutocomplete(suggestion);
       } catch (err) {
@@ -952,7 +987,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
                   </div>
 
                   {/* Bottom Stats inside Editor */}
-                  <div className="mt-20 flex items-center justify-between border-t border-white/5 pt-6 text-[9px] font-black uppercase text-white/20 tracking-widest">
+                  {!isZenMode && <div className="mt-20 flex items-center justify-between border-t border-white/5 pt-6 text-[9px] font-black uppercase text-white/20 tracking-widest">
                      <div className="flex gap-6">
                         <span>{content.split(/\s+/).filter(x => x).length} palavras</span>
                         <span>•</span>
@@ -966,7 +1001,7 @@ export function ProjectEditor({ project }: ProjectEditorProps) {
                            <div className="h-full bg-editorial-accent transition-all shadow-neon-small" style={{ width: '65%' }} />
                         </div>
                      </div>
-                  </div>
+                  </div>}
                 </motion.div>
               )}
 

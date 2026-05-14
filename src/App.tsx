@@ -20,6 +20,7 @@ import { VisualManager } from './components/VisualManager';
 import { AIChat } from './components/AIChat';
 import { LogIn, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { cn } from './lib/utils'; // Import cn
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -27,7 +28,10 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]); // New state for characters
+  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [view, setView] = useState<'dashboard' | 'editor' | 'reader' | 'characters' | 'lore' | 'schedule' | 'chat' | 'storyboard'>('dashboard');
+  const [isZenMode, setIsZenMode] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
@@ -37,6 +41,8 @@ export default function App() {
         setProjects([]);
         setActiveProject(null);
         setChapters([]);
+        setCharacters([]); // Clear characters on logout
+        setActiveChapterId(null);
         setView('dashboard');
       }
     });
@@ -59,7 +65,19 @@ export default function App() {
       setChapters(caps);
     });
 
-    return () => unsubscribe();
+    // Fetch characters for the active project
+    const unsubChars = onSnapshot(
+      collection(db, 'projects', activeProject.id, 'characters'),
+      (snapshot) => {
+        const chars = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Character));
+        setCharacters(chars);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+      unsubChars();
+    };
   }, [activeProject?.id]);
 
   useEffect(() => {
@@ -127,17 +145,19 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-editorial-bg flex font-sans text-editorial-accent antialiased">
-      <Sidebar
-        activeView={view}
-        setView={setView}
-        hasActiveProject={!!activeProject}
-        onBackToDashboard={() => {
-          setView('dashboard');
-          setActiveProject(null);
-        }}
-      />
+      {!isZenMode && (
+        <Sidebar
+          activeView={view}
+          setView={setView}
+          hasActiveProject={!!activeProject}
+          onBackToDashboard={() => {
+            setView('dashboard');
+            setActiveProject(null);
+          }}
+        />
+      )}
       
-      <main className="flex-1 flex flex-col min-w-0">
+      <main className={cn("flex-1 flex flex-col min-w-0 transition-all duration-500", isZenMode ? "bg-[#080808]" : "bg-editorial-bg")}>
         <Navbar user={user} activeProject={activeProject} />
         
         <div className="flex-1 overflow-hidden relative">
@@ -155,13 +175,19 @@ export default function App() {
                   <ProjectEditor
                     key="editor"
                     project={activeProject}
+                    characters={characters}
+                    activeChapterId={activeChapterId}
+                    setActiveChapterId={setActiveChapterId}
+                    isZenMode={isZenMode}
+                    setIsZenMode={setIsZenMode}
                   />
                 )}
                 {view === 'reader' && (
                   <ReaderMode
                     key="reader"
                     project={activeProject}
-                    chapters={chapters}
+                    chapters={chapters} // chapters are already sorted by order
+                    initialChapterId={activeChapterId || chapters[0]?.id} // Use activeChapterId directly
                     onBack={() => setView('editor')}
                   />
                 )}
@@ -169,6 +195,7 @@ export default function App() {
                   <CharacterList
                     key="characters"
                     project={activeProject}
+                    characters={characters} // Pass characters to CharacterList
                     chapters={chapters}
                   />
                 )}
@@ -196,6 +223,7 @@ export default function App() {
                   <AIChat
                     key="chat"
                     project={activeProject}
+                    characters={characters} // Pass characters to AIChat
                   />
                 )}
               </>

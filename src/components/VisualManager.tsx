@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Project, ArtAssetpshot, addDoc, deleteDoc, doc, serverTimestamp, query, orderBy, updateDoc, getDocs } from 'firebase/firestore';
+import { Project, ArtAsset, Character, Chapter } from '../types';
+import { collection, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, query, orderBy, updateDoc, getDocs } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Image as ImageIcon, Plus, Trash2, Layout, Maximize2, X, Layers, Filter, Grid2X2, List, Sparkles, ChevronLeft, ChevronRight, Wand2, Edit3 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -28,6 +29,7 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
   const [aiSuggestions, setAiSuggestions] = useState<{ title: string, description: string, pageNumber?: number }[]>([]);
   const [editingAsset, setEditingAsset] = useState<ArtAsset | null>(null);
   const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState(false);
+  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
   
   const [formData, setFormData] = useState({ 
     title: '', 
@@ -320,18 +322,26 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
                            <Plus className="w-3 h-3" /> Roteiro
                         </button>
                         <button 
-                          onClick={() => {
-                            const imageUrl = getAiImageAsset(`manga style, cinematic, ${s.description}`);
-                            setFormData({
-                              title: s.title,
-                              description: s.description,
-                              imageUrl: imageUrl,
-                              type: 'panel',
-                              pageNumber: s.pageNumber || currentPage
-                            });
-                            setIsAdding(true);
-                            setAiSuggestions(prev => prev.filter(item => item !== s));
+                          onClick={async () => {
+                            setIsGeneratingImage(true);
+                            try {
+                              const imageUrl = await getAiImageAsset(`manga style, cinematic, ${s.description}`);
+                              setFormData({
+                                title: s.title,
+                                description: s.description,
+                                imageUrl: imageUrl,
+                                type: 'panel',
+                                pageNumber: s.pageNumber || currentPage
+                              });
+                              setIsAdding(true);
+                              setAiSuggestions(prev => prev.filter(item => item !== s));
+                            } catch (err) {
+                              console.error(err);
+                            } finally {
+                              setIsGeneratingImage(false);
+                            }
                           }}
+                          disabled={isGeneratingImage}
                           className="flex-1 py-2 bg-editorial-accent text-white rounded-xl font-bold text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg"
                         >
                            <Sparkles className="w-3 h-3" /> Gerar Arte
@@ -441,14 +451,20 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
                             alert("Preencha o título ou descrição para gerar a arte.");
                             return;
                           }
-                          const style = project.type === 'manga' ? 'manga style, black and white, ink drawing' : 'cinematic movie storyboard, realistic';
-                          const imageUrl = getAiImageAsset(`${style}, ${formData.title}: ${formData.description}`);
-                          setFormData({ ...formData, imageUrl });
+                          setIsGeneratingImage(true);
+                          try {
+                            const style = project.type === 'manga' ? 'manga style, black and white, ink drawing' : 'cinematic movie storyboard, realistic';
+                            const imageUrl = await getAiImageAsset(`${style}, ${formData.title}: ${formData.description}`);
+                            setFormData({ ...formData, imageUrl });
+                          } finally {
+                            setIsGeneratingImage(false);
+                          }
                         }}
-                        className="p-3 bg-editorial-accent text-white rounded-xl shadow-lg hover:opacity-90 transition-all flex items-center justify-center"
+                        disabled={isGeneratingImage}
+                        className="p-3 bg-editorial-accent text-white rounded-xl shadow-lg hover:opacity-90 transition-all flex items-center justify-center disabled:opacity-30"
                         title="Gerar Arte com IA"
                       >
-                        <Wand2 className="w-4 h-4" />
+                        {isGeneratingImage ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
                       </button>
                     </div>
 

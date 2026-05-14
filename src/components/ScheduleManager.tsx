@@ -5,7 +5,7 @@ import { db } from '../lib/firebase';
 import { Calendar, Plus, Target, CheckCircle2, Circle, Clock, Trash2, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn, formatDate } from '../lib/utils';
-import { differenceInDays } from 'date-fns';
+import { differenceInDays, isToday, isTomorrow } from 'date-fns';
 
 interface ScheduleManagerProps {
   project: Project;
@@ -45,10 +45,10 @@ export function ScheduleManager({ project }: ScheduleManagerProps) {
 
   const updateProgress = async (id: string, current: number, goal: number) => {
     const newVal = prompt("Atualizar progresso de palavras:", current.toString());
-    if (newVal === null) return;
+    if (newVal === null || isNaN(Number(newVal))) return;
     
     await updateDoc(doc(db, 'projects', project.id, 'schedules', id), {
-      currentProgress: Number(newVal),
+      currentProgress: Math.max(0, Number(newVal)),
       updatedAt: serverTimestamp()
     });
   };
@@ -137,7 +137,7 @@ export function ScheduleManager({ project }: ScheduleManagerProps) {
 
       <div className="space-y-8">
         {schedules.map((s) => {
-          const progress = Math.min((s.currentProgress / s.goal) * 100, 100);
+          const progress = s.goal > 0 ? Math.min((s.currentProgress / s.goal) * 100, 100) : 0;
           
           let deadlineDate: Date | null = null;
           if (s.deadline) {
@@ -150,8 +150,16 @@ export function ScheduleManager({ project }: ScheduleManagerProps) {
           
           const daysLeft = deadlineDate && !isNaN(deadlineDate.getTime()) 
             ? differenceInDays(deadlineDate, new Date()) 
-            : null;
+            : 0;
             
+          const getDeadlineLabel = () => {
+            if (!deadlineDate || isNaN(deadlineDate.getTime())) return 'Sem prazo';
+            if (isToday(deadlineDate)) return 'Hoje';
+            if (isTomorrow(deadlineDate)) return 'Amanhã';
+            if (daysLeft < 0) return 'Expirado';
+            return `Restam ${daysLeft} dias`;
+          };
+
           const isDone = progress === 100;
 
           return (
@@ -176,7 +184,10 @@ export function ScheduleManager({ project }: ScheduleManagerProps) {
                 </div>
                 <div className="flex items-center gap-6 text-[10px] font-bold text-editorial-muted uppercase tracking-widest">
                   <div className="flex items-center gap-2"><Target className="w-3.5 h-3.5" /> {s.currentProgress} / {s.goal} pal.</div>
-                  <div className="flex items-center gap-2"><Clock className="w-3.5 h-3.5" /> {daysLeft < 0 ? 'Expirado' : `Restam ${daysLeft} dias`}</div>
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5" /> 
+                    {getDeadlineLabel()}
+                  </div>
                 </div>
               </div>
 

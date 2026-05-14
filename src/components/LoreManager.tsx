@@ -108,7 +108,8 @@ export function LoreManager({ project, chapters = [], initialAssistantOpen = fal
     try {
       const batch = writeBatch(db);
       let count = 0;
-      const loreRegex = new RegExp(`\\b${oldTitle}\\b`, 'g');
+      const escapedTitle = oldTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const loreRegex = new RegExp(`\\b${escapedTitle}\\b`, 'g');
       
       chapters.forEach(chapter => {
         if (loreRegex.test(chapter.content)) {
@@ -196,7 +197,6 @@ export function LoreManager({ project, chapters = [], initialAssistantOpen = fal
     if (assistantResults.length === 0) return;
     setIsAiLoading(true);
     try {
-      const { writeBatch } = await import('firebase/firestore');
       const batch = writeBatch(db);
       
       assistantResults.forEach(item => {

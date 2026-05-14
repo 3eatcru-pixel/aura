@@ -10,10 +10,11 @@ import { cn, formatDate } from '../lib/utils';
 interface AIChatProps {
   project: Project;
   currentContent?: string;
+  characters?: Character[]; // Add characters prop
   key?: string;
 }
 
-export function AIChat({ project, currentContent }: AIChatProps) {
+export function AIChat({ project, currentContent, characters = [] }: AIChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -60,6 +61,7 @@ export function AIChat({ project, currentContent }: AIChatProps) {
         Título: ${project.title}
         Descrição: ${project.description || "N/A"}
         Natureza/Gênero: ${project.type || "N/A"}
+        Personagens: ${characters.map(c => `${c.name} (${c.role}): ${c.traits}`).join('; ')}
         Papel do Assistente: Você está atuando como ${activeExpert}.
         Conteúdo Atual da Página: ${contextText.slice(-4000) || "Início da história"}
       `;

@@ -99,7 +99,63 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
       canvas.dispose();
       window.removeEventListener('resize', handleResize);
     };
-  }, [containerRef.current, activeTool]);
+  }, [containerRef.current]);
+
+  // Aplicar Zoom ao Canvas
+  useEffect(() => {
+    const canvas = fabricCanvas.current;
+    if (!canvas || !containerRef.current) return;
+
+    canvas.setZoom(zoom);
+    canvas.requestRenderAll();
+  }, [zoom]);
+
+  // Handle Tool Changes without Re-creating Canvas
+  useEffect(() => {
+    const canvas = fabricCanvas.current;
+    if (!canvas) return;
+
+    canvas.defaultCursor = activeTool === 'hand' ? 'grab' : 'default';
+    canvas.selection = activeTool === 'select';
+    
+    // Panning (Hand Tool) Logic
+    const handleMouseDown = (opt: fabric.IEvent) => {
+      const evt = opt.e as MouseEvent;
+      if (activeTool === 'hand') {
+        canvas.isDragging = true;
+        canvas.selection = false;
+        canvas.lastPosX = evt.clientX;
+        canvas.lastPosY = evt.clientY;
+      }
+    };
+
+    const handleMouseMove = (opt: fabric.IEvent) => {
+      if (canvas.isDragging) {
+        const e = opt.e as MouseEvent;
+        const vpt = canvas.viewportTransform;
+        vpt![4] += e.clientX - canvas.lastPosX;
+        vpt![5] += e.clientY - canvas.lastPosY;
+        canvas.requestRenderAll();
+        canvas.lastPosX = e.clientX;
+        canvas.lastPosY = e.clientY;
+      }
+    };
+
+    const handleMouseUp = () => {
+      canvas.setViewportTransform(canvas.viewportTransform!);
+      canvas.isDragging = false;
+    };
+
+    canvas.on('mouse:down', handleMouseDown);
+    canvas.on('mouse:move', handleMouseMove);
+    canvas.on('mouse:up', handleMouseUp);
+
+    return () => {
+      canvas.off('mouse:down', handleMouseDown);
+      canvas.off('mouse:move', handleMouseMove);
+      canvas.off('mouse:up', handleMouseUp);
+    };
+  }, [activeTool]);
 
   // Sync Nodes from Firebase
   useEffect(() => {
@@ -117,15 +173,38 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
   const renderNodes = (nodesToRender: CinematicNode[]) => {
     if (!fabricCanvas.current) return;
     const canvas = fabricCanvas.current;
-    
-    // Clear current non-system objects
-    canvas.remove(...canvas.getObjects().filter(obj => obj.data?.id));
 
+    const existingObjects = canvas.getObjects().filter(obj => obj.data?.id);
+    const nodeIdsToRender = new Set(nodesToRender.map(n => n.id));
+
+    // 1. Remover objetos que não existem mais no banco
+    existingObjects.forEach(obj => {
+      if (!nodeIdsToRender.has(obj.data.id)) {
+        canvas.remove(obj);
+      }
+    });
+
+    // 2. Atualizar ou Criar
     nodesToRender.forEach(node => {
-      if (node.type === 'panel') {
-        renderPanelToCanvas(node);
-      } else if (node.type === 'text') {
-        renderTextToCanvas(node);
+      const existingObj = existingObjects.find(obj => obj.data.id === node.id);
+
+      if (existingObj) {
+        // Atualiza posição se mudou externamente (ex: por outro usuário ou IA)
+        if (existingObj.left !== node.x || existingObj.top !== node.y) {
+          existingObj.set({ left: node.x, top: node.y });
+          existingObj.setCoords();
+        }
+
+        // Atualizar texto se mudou (para IText)
+        if (node.type === 'text' && existingObj instanceof fabric.IText) {
+          if (existingObj.text !== node.content.balloonText) {
+            existingObj.set({ text: node.content.balloonText || '' });
+          }
+        }
+      } else {
+        // Novo objeto
+        if (node.type === 'panel') renderPanelToCanvas(node);
+        else if (node.type === 'text') renderTextToCanvas(node);
       }
     });
 
@@ -198,6 +277,26 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
     canvas.add(text);
   };
 
+  const handleAddText = async () => {
+    const newNode: Partial<CinematicNode> = {
+      type: 'text',
+      x: 200 + nodes.length * 20,
+      y: 200,
+      content: {
+        balloonText: 'NOVO DIÁLOGO',
+      },
+      order: nodes.length,
+      createdAt: serverTimestamp()
+    };
+
+    try {
+      await addDoc(collection(db, 'projects', project.id, 'cinematic'), newNode);
+      setActiveTool('select');
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleAddPanel = async () => {
     const newNode: Partial<CinematicNode> = {
       type: 'panel',
@@ -258,7 +357,7 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
     if (!selectedNode) return;
     const style = project.type === 'manga' ? 'manga style, black and white ink, cinematic' : 'cinematic movie shot, realistic';
     const prompt = `${style}, ${selectedNode.content.cameraAngle}, ${selectedNode.content.shotType}, ${selectedNode.content.description}`;
-    const imageUrl = getAiImageAsset(prompt);
+    const imageUrl = await getAiImageAsset(prompt);
     
     handleUpdateNode(selectedNode.id, {
       content: {
@@ -314,6 +413,7 @@ export function CinematicDirector({ project, characters, onClose }: CinematicDir
                 <Layout className="w-4 h-4" /> Add Cena
               </button>
               <button 
+                onClick={handleAddText}
                 className={cn("flex items-center gap-2 px-4 py-2 rounded-xl transition-all font-black text-[9px] uppercase tracking-widest text-white/60 hover:bg-white/5")}
               >
                 <FontIcon className="w-4 h-4" /> Add Texto
