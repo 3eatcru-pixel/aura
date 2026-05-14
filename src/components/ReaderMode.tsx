@@ -38,7 +38,15 @@ export function ReaderMode({ project, chapters, initialChapterId, onBack }: Read
     const unsub = onSnapshot(
       query(collection(db, 'projects', project.id, 'art'), where('type', '==', 'panel')),
       (snap) => {
-        setVisualPanels(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ArtAsset)).sort((a,b) => a.title.localeCompare(b.title)));
+        setVisualPanels(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ArtAsset)).sort((a,b) => {
+          // Sort by pageNumber first for chronological order
+          if (a.pageNumber !== b.pageNumber) {
+            return (a.pageNumber || 0) - (b.pageNumber || 0);
+          }
+          // Then by createdAt if available, otherwise by title
+          if (a.createdAt && b.createdAt) return a.createdAt.toMillis() - b.createdAt.toMillis();
+          return a.title.localeCompare(b.title);
+        }));
       }
     );
     return () => unsub();
@@ -209,15 +217,20 @@ export function ReaderMode({ project, chapters, initialChapterId, onBack }: Read
                     {visualPanels.filter(p => p.pageNumber === (currentChapter.order)).length > 0 ? (
                       visualPanels
                         .filter(p => p.pageNumber === (currentChapter.order))
-                        .sort((a, b) => a.title.localeCompare(b.title))
+                        .sort((a, b) => { // Re-sort here to ensure correct order after filtering
+                          if (a.pageNumber !== b.pageNumber) return (a.pageNumber || 0) - (b.pageNumber || 0);
+                          if (a.createdAt && b.createdAt) return a.createdAt.toMillis() - b.createdAt.toMillis();
+                          return a.title.localeCompare(b.title);
+                        })
                         .map((panel, idx) => (
                       <div key={panel.id} className="group flex flex-col gap-4">
-                         <div className="relative">
+                         <div className="relative aspect-video bg-white/5 rounded-[40px] overflow-hidden">
                            <img 
                              src={panel.imageUrl} 
                              alt={panel.title} 
-                             className="w-full rounded-[40px] shadow-2xl border border-white/5" 
+                             className="w-full h-full object-cover shadow-2xl border border-white/5 transition-opacity duration-500" 
                              referrerPolicy="no-referrer"
+                             loading="lazy"
                            />
                            <div className="absolute top-6 left-6">
                               <span className="bg-editorial-accent text-white text-[10px] font-black px-4 py-1.5 rounded-full shadow-neon">#{idx + 1} &middot; {panel.title}</span>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Project, Universe } from '../types';
 import { Plus, Github, Search, Book, Clock, ChevronRight, Globe, Layers, Layout, BookOpen, Cloud, RefreshCw, CheckCircle2, Trash2, Dices, Sparkles, Wand2, X, Users, Zap, Shield } from 'lucide-react';
-import { collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, deleteDoc, writeBatch, getDocs } from 'firebase/firestore';
 import { db, auth } from '../lib/firebase';
 import { motion, AnimatePresence } from 'motion/react';
 import { formatDate, cn } from '../lib/utils';
@@ -51,6 +51,14 @@ export function Dashboard({ projects, onSelectProject }: DashboardProps) {
     };
   }, []);
 
+  // Limpa mensagem de sincronização após 5 segundos
+  useEffect(() => {
+    if (syncMessage && syncMessage.type === 'success') {
+      const timer = setTimeout(() => setSyncMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [syncMessage]);
+
   const checkDriveStatus = async () => {
     try {
       const resp = await fetch('/api/auth/google/status');
@@ -75,10 +83,26 @@ export function Dashboard({ projects, onSelectProject }: DashboardProps) {
     setIsSyncing(true);
     setSyncMessage(null);
     try {
+      // Otimização: Busca os capítulos de forma estruturada para evitar gargalos de rede
+      const projectsWithFullContent = [];
+      for (const p of projects) {
+        const chaptersSnap = await getDocs(query(collection(db, 'projects', p.id, 'chapters'), orderBy('order', 'asc')));
+        
+        if (!chaptersSnap.empty) {
+          const fullContent = chaptersSnap.docs
+            .map(d => d.data().content || '')
+            .join('\n\n');
+            
+          projectsWithFullContent.push({ ...p, fullContent });
+        } else {
+          projectsWithFullContent.push({ ...p, fullContent: "" });
+        }
+      }
+
       const resp = await fetch('/api/sync/drive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ projects, universes }),
+        body: JSON.stringify({ projects: projectsWithFullContent, universes }),
       });
       const data = await resp.json();
       if (data.success) {

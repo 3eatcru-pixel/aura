@@ -165,10 +165,17 @@ export function LoreManager({ project, chapters = [], initialAssistantOpen = fal
     if (chapters.length === 0) return;
     setIsAiLoading(true);
     try {
-      // Concatenate all chapters for context
-      const fullManuscript = chapters.map(c => `[${c.title}]\n${c.content}`).join('\n\n');
-      // Use the last 6000 chars to avoid token limits but get enough history
-      const contextToExtract = fullManuscript.slice(-8000);
+      // Otimização: Acumula contexto de trás para frente até atingir o limite
+      let contextToExtract = "";
+      const limit = 8000;
+      for (let i = chapters.length - 1; i >= 0; i--) {
+        const chapterText = `[${chapters[i].title}]\n${chapters[i].content}\n\n`;
+        if ((contextToExtract.length + chapterText.length) > limit) {
+          contextToExtract = chapterText.slice(-(limit - contextToExtract.length)) + contextToExtract;
+          break;
+        }
+        contextToExtract = chapterText + contextToExtract;
+      }
       
       const results = await processLoreDraft(`POR FAVOR, EXTRAIA LORE DO MANUSCRITO ABAIXO:\n\n${contextToExtract}`);
       setAssistantResults(results as any);
@@ -206,27 +213,32 @@ export function LoreManager({ project, chapters = [], initialAssistantOpen = fal
     if (assistantResults.length === 0) return;
     setIsAiLoading(true);
     try {
-      const batch = writeBatch(db);
-      
-      assistantResults.forEach(item => {
-        const existing = lores.find(l => l.title.toLowerCase().trim() === item.title.toLowerCase().trim());
+      const CHUNK_SIZE = 490;
+      for (let i = 0; i < assistantResults.length; i += CHUNK_SIZE) {
+        const chunk = assistantResults.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
         
-        if (existing) {
-          const docRef = doc(db, 'projects', project.id, 'lore', existing.id);
-          batch.update(docRef, {
-            content: existing.content + "\n\n" + item.content,
-            updatedAt: serverTimestamp(),
-          });
-        } else {
-          const docRef = doc(collection(db, 'projects', project.id, 'lore'));
-          batch.set(docRef, {
-            ...item,
-            updatedAt: serverTimestamp(),
-          });
-        }
-      });
-      
-      await batch.commit();
+        chunk.forEach(item => {
+          const existing = lores.find(l => l.title.toLowerCase().trim() === item.title.toLowerCase().trim());
+          
+          if (existing) {
+            const docRef = doc(db, 'projects', project.id, 'lore', existing.id);
+            batch.update(docRef, {
+              content: existing.content + "\n\n" + item.content,
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            const docRef = doc(collection(db, 'projects', project.id, 'lore'));
+            batch.set(docRef, {
+              ...item,
+              updatedAt: serverTimestamp(),
+            });
+          }
+        });
+        
+        await batch.commit();
+      }
+
       setAssistantResults([]);
       setIsAssistantOpen(false);
     } catch (err) {

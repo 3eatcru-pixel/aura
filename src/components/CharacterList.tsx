@@ -212,13 +212,13 @@ export function CharacterList({ project, characters: propCharacters = [], chapte
         context = chapterText + context;
       }
 
-      const existingNamesList = characters.map(c => c.name);
+      const existingNamesList = characters.map(c => c.name.trim().toLowerCase()); // Trim and lower for better comparison
       const detectedNames = await detectCharacters(context, existingNamesList);
       
-      const existingNamesSet = new Set(characters.map(c => c.name.toLowerCase()));
+      const existingNamesSet = new Set(characters.map(c => c.name.toLowerCase().trim())); // Ensure existing names are trimmed and lowercased
       const filtered = detectedNames
-        .filter(name => !existingNamesSet.has(name.toLowerCase()))
-        .map(name => ({ name, role: 'Novo Personagem', description: '', traits: '', isAutoDetected: true } as Partial<Character>));
+        .filter(name => !existingNamesSet.has(name.toLowerCase().trim())) // Filter out already existing names
+        .map(name => ({ name: name.trim(), role: 'Novo Personagem', description: '', traits: '', isAutoDetected: true } as Partial<Character>)); // Trim new names
         
       setDetectedCharacters(filtered);
     } catch (err) {
@@ -253,15 +253,22 @@ export function CharacterList({ project, characters: propCharacters = [], chapte
     if (detectedCharacters.length === 0) return;
     setIsAiLoading(true);
     try {
-      const batch = writeBatch(db);
-      detectedCharacters.forEach(char => {
-        const docRef = doc(collection(db, 'projects', project.id, 'characters'));
-        batch.set(docRef, {
-          ...char,
-          updatedAt: serverTimestamp(),
+      const CHUNK_SIZE = 490;
+      for (let i = 0; i < detectedCharacters.length; i += CHUNK_SIZE) {
+        const chunk = detectedCharacters.slice(i, i + CHUNK_SIZE);
+        const batch = writeBatch(db);
+        
+        chunk.forEach(char => {
+          const docRef = doc(collection(db, 'projects', project.id, 'characters'));
+          batch.set(docRef, {
+            ...char,
+            updatedAt: serverTimestamp(),
+          });
         });
-      });
-      await batch.commit();
+        
+        await batch.commit();
+      }
+
       setDetectedCharacters([]);
       setIsAssistantOpen(false);
     } catch (err) {

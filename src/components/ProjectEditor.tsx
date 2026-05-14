@@ -226,7 +226,8 @@ export function ProjectEditor({ project, characters, activeChapterId, setActiveC
     // Debounce: Apenas empilha no Undo se passaram 3 segundos desde o último "ponto de restauração"
     const now = Date.now();
     if (now - lastUndoPush.current > 3000) {
-      setUndoStack(prev => [...prev.slice(-
+      setUndoStack(prev => [...prev.slice(-99), content]);
+      setRedoStack([]);
       lastUndoPush.current = now;
     }
 

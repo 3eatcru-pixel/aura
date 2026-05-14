@@ -117,15 +117,25 @@ app.post('/api/sync/drive', async (req, res) => {
     const findOrCreateFolder = async (name: string, parentId: string | null = null) => {
       const q = parentId ? `'${parentId}' in parents and name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false` : `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
       
-      // Garante busca em todas as páginas para evitar pastas duplicadas
-      const search = await drive.files.list({ 
-        q, 
-        fields: 'files(id)',
-        pageSize: 10 // Reduzido para exemplo, mas na prática lida com a primeira página de forma mais segura
-      });
+      let pageToken: string | undefined = undefined;
+      let existingFolderId: string | undefined = undefined;
+
+      do {
+        const search = await drive.files.list({ 
+          q, 
+          fields: 'nextPageToken, files(id)',
+          pageToken: pageToken,
+        });
+        
+        if (search.data.files && search.data.files.length > 0) {
+          existingFolderId = search.data.files[0].id;
+          break; // Found the folder
+        }
+        pageToken = search.data.nextPageToken || undefined;
+      } while (pageToken);
       
-      if (search.data.files && search.data.files.length > 0) {
-        return search.data.files[0].id;
+      if (existingFolderId) {
+        return existingFolderId;
       }
       const folder = await drive.files.create({
         requestBody: { name, mimeType: 'application/vnd.google-apps.folder', parents: parentId ? [parentId] : [] },
@@ -136,16 +146,32 @@ app.post('/api/sync/drive', async (req, res) => {
 
     // Helper function to find or create/update a file
     const findOrCreateUpdateFile = async (name: string, parentId: string, mimeType: string, body: string) => {
-      const q = `'${parentId}' in parents and name = '${name}' and trashed = false`;
-      const search = await drive.files.list({ q, fields: 'files(id)' });
+      const q = `'${parentId}' in parents and name = '${name}' and mimeType = '${mimeType}' and trashed = false`;
+
+      let pageToken: string | undefined = undefined;
+      let existingFileId: string | undefined = undefined;
+
+      do {
+        const search = await drive.files.list({ 
+          q, 
+          fields: 'nextPageToken, files(id)',
+          pageToken: pageToken,
+        });
+        
+        if (search.data.files && search.data.files.length > 0) {
+          existingFileId = search.data.files[0].id;
+          break; // Found the file
+        }
+        pageToken = search.data.nextPageToken || undefined;
+      } while (pageToken);
       
-      if (search.data.files && search.data.files.length > 0) {
+      if (existingFileId) {
         // File exists, update its content
         await drive.files.update({
-          fileId: search.data.files[0].id!,
+          fileId: existingFileId,
           media: { mimeType, body },
         });
-        return search.data.files[0].id;
+        return existingFileId;
       } else {
         // File does not exist, create it
         const file = await drive.files.create({
@@ -174,14 +200,16 @@ app.post('/api/sync/drive', async (req, res) => {
       
       const uniProjects = projects.filter((p: any) => p.universeId === uni.id);
       for (const proj of uniProjects) {
-        const projFolderId = await findOrCreateFolder(proj.title, uniFolderId);
-        if (!projFolderId) {
-          console.warn(`Could not create or find folder for project: ${proj.title} in universe: ${uni.title}`);
-          continue;
-        }
+        try {
+          const projFolderId = await findOrCreateFolder(proj.title, uniFolderId);
+          if (!projFolderId) continue;
 
-        // Add Content.txt
-        await findOrCreateUpdateFile('Manuscrito.txt', projFolderId, 'text/plain', proj.currentContent || '');
+          // Add Content.txt (now using fullContent from client)
+          await findOrCreateUpdateFile('Manuscrito.txt', projFolderId, 'text/plain', proj.fullContent || '');
+        } catch (projError) {
+          console.error(`Failed to sync project ${proj.title}:`, projError);
+          // Continue para o próximo projeto mesmo se este falhar
+        }
       }
     }
 
@@ -199,7 +227,7 @@ app.post('/api/sync/drive', async (req, res) => {
           console.warn(`Could not create or find folder for solo project: ${proj.title}`);
           continue;
         }
-        await findOrCreateUpdateFile('Manuscrito.txt', projFolderId, 'text/plain', proj.currentContent || '');
+        await findOrCreateUpdateFile('Manuscrito.txt', projFolderId, 'text/plain', proj.fullContent || '');
       }
     }
 

@@ -29,7 +29,7 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
   const [aiSuggestions, setAiSuggestions] = useState<{ title: string, description: string, pageNumber?: number }[]>([]);
   const [editingAsset, setEditingAsset] = useState<ArtAsset | null>(null);
   const [isGeneratingStoryboard, setIsGeneratingStoryboard] = useState(false);
-  const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [generatingImageForSuggestion, setGeneratingImageForSuggestion] = useState<Set<string>>(new Set()); // Track loading per suggestion
   
   const [formData, setFormData] = useState({ 
     title: '', 
@@ -55,14 +55,31 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
     return typeMatch && pageMatch;
   }).sort((a, b) => {
     if (a.pageNumber !== b.pageNumber) return (a.pageNumber || 0) - (b.pageNumber || 0);
-    return a.title.localeCompare(b.title);
+    // If page numbers are the same, sort by createdAt for chronological order
+    if (a.createdAt && b.createdAt) {
+      // Assuming createdAt is a Firebase Timestamp, convert to milliseconds for comparison
+      return a.createdAt.toMillis() - b.createdAt.toMillis();
+    }
+    // Fallback to title if createdAt is not available
+    return a.title.localeCompare(b.title); 
   });
+  
 
   const handleAiSuggest = async () => {
     setIsAiLoading(true);
     try {
-      const loreText = `Contexto: ${project.description}. Tipo: ${project.type}.`;
-      const suggestions = await getPanelSuggestions(loreText, assets.slice(-5));
+      // Contexto aprimorado incluindo os últimos ativos para manter continuidade visual
+      const assetContext = assets
+        .slice(0, 5)
+        .map(a => `[${a.title}]: ${a.description}`)
+        .join(' | ');
+        
+      const loreText = `
+        Projeto: ${project.title}
+        Descrição: ${project.description}
+        Ativos Existentes: ${assetContext}
+      `;
+      const suggestions = await getPanelSuggestions(loreText, assets.slice(0, 5));
       setAiSuggestions(suggestions);
     } catch (err) {
       console.error(err);
@@ -91,7 +108,17 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
 
     setIsGeneratingStoryboard(true);
     try {
-      const manuscript = chapters.map(c => c.content).join('\n\n');
+      // Otimização: Acumula contexto de trás para frente até atingir o limite
+      let manuscript = "";
+      const limit = 10000; // Ajuste o limite conforme necessário para a IA de storyboard
+      for (let i = chapters.length - 1; i >= 0; i--) {
+        const chapterText = chapters[i].content + '\n\n';
+        if ((manuscript.length + chapterText.length) > limit) {
+          manuscript = chapterText.slice(-(limit - manuscript.length)) + manuscript;
+          break;
+        }
+        manuscript = chapterText + manuscript;
+      }
       const loreText = `Projeto: ${project.title}. Descrição: ${project.description}. Tipo: ${project.type}.`;
       const suggestions = await generateStoryboardFromText(loreText, manuscript);
       setAiSuggestions(suggestions);
@@ -212,6 +239,19 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
 
           <div className="h-8 w-px bg-editorial-border mx-2" />
 
+          {/* Atalho para o Diretor Cinematográfico */}
+          {onSwitchToDirector && (
+            <button
+              onClick={onSwitchToDirector}
+              className="flex items-center gap-2 px-4 py-2 bg-editorial-accent/10 text-editorial-accent rounded-full border border-editorial-accent/20 hover:bg-editorial-accent hover:text-white transition-all font-bold text-[9px] uppercase tracking-widest"
+            >
+              <Layout className="w-4 h-4" />
+              Storyboard Avançado
+            </button>
+          )}
+
+          <div className="h-8 w-px bg-editorial-border mx-2" />
+
           {/* Filtros */}
           <div className="flex bg-editorial-sidebar rounded-full p-1 border border-editorial-border">
             {[
@@ -324,7 +364,8 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
                         </button>
                         <button 
                           onClick={async () => {
-                            setIsGeneratingImage(true);
+                            const suggestionId = `${s.title}-${idx}`; // Unique ID for this suggestion
+                            setGeneratingImageForSuggestion(prev => new Set(prev).add(suggestionId));
                             try {
                               const imageUrl = await getAiImageAsset(`manga style, cinematic, ${s.description}`);
                               setFormData({
@@ -339,13 +380,17 @@ export function VisualManager({ project, characters = [], chapters = [], onSwitc
                             } catch (err) {
                               console.error(err);
                             } finally {
-                              setIsGeneratingImage(false);
+                              setGeneratingImageForSuggestion(prev => {
+                                const newSet = new Set(prev);
+                                newSet.delete(suggestionId);
+                                return newSet;
+                              });
                             }
                           }}
-                          disabled={isGeneratingImage}
+                          disabled={generatingImageForSuggestion.has(`${s.title}-${idx}`)}
                           className="flex-1 py-2 bg-editorial-accent text-white rounded-xl font-bold text-[9px] uppercase tracking-widest flex items-center justify-center gap-2 shadow-lg"
                         >
-                           <Sparkles className="w-3 h-3" /> Gerar Arte
+                           {generatingImageForSuggestion.has(`${s.title}-${idx}`) ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />} Gerar Arte
                         </button>
                       </div>
                    </motion.div>
