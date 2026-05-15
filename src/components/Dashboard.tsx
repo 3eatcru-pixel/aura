@@ -16,6 +16,7 @@ interface DashboardProps {
 const ApiKeySettingsModal = ({ onClose, onSyncMessage }: { onClose: () => void, onSyncMessage: (msg: {text: string, type: 'success' | 'error'}) => void }) => {
   const [keys, setKeys] = useState({
     provider: localStorage.getItem('aura_ai_provider') || 'gemini',
+    gemini: localStorage.getItem('aura_gemini_key') || '',
     openai: localStorage.getItem('aura_openai_key') || '',
     deepseek: localStorage.getItem('aura_deepseek_key') || '',
     deepl: localStorage.getItem('aura_deepl_key') || '',
@@ -23,6 +24,7 @@ const ApiKeySettingsModal = ({ onClose, onSyncMessage }: { onClose: () => void, 
 
   const saveKeys = () => {
     localStorage.setItem('aura_ai_provider', keys.provider);
+    localStorage.setItem('aura_gemini_key', keys.gemini);
     localStorage.setItem('aura_openai_key', keys.openai);
     localStorage.setItem('aura_deepseek_key', keys.deepseek);
     localStorage.setItem('aura_deepl_key', keys.deepl);
@@ -67,12 +69,12 @@ const ApiKeySettingsModal = ({ onClose, onSyncMessage }: { onClose: () => void, 
               onChange={e => setKeys({...keys, provider: e.target.value})}
               className="w-full bg-white/5 border border-white/10 rounded-xl py-3 px-4 outline-none focus:border-editorial-accent transition-all text-xs text-white appearance-none"
             >
-              <option value="gemini" className="bg-[#1a1a1a]">Google Gemini (via Login)</option>
+              <option value="gemini" className="bg-[#1a1a1a]">Google Gemini (Key ou OAuth)</option>
               <option value="gpt" className="bg-[#1a1a1a]">OpenAI GPT-4o (BYOK)</option>
               <option value="deepseek" className="bg-[#1a1a1a]">DeepSeek V3 (BYOK)</option>
             </select>
           </div>
-          {['openai', 'deepseek', 'deepl'].map(type => (
+          {['gemini', 'openai', 'deepseek', 'deepl'].map(type => (
             <div key={type} className="space-y-2">
               <div className="flex justify-between items-center px-1">
                 <label className="text-[9px] font-black text-editorial-accent uppercase tracking-widest">{type} API Key</label>

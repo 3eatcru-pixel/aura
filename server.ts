@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'path';
 import { fileURLToPath } from 'url';
 import { google } from 'googleapis';
 import dotenv from 'dotenv';
@@ -92,63 +93,53 @@ app.get('/api/auth/google/status', (req, res) => {
 
 // --- AI Assistant Proxy (Plugin Style) - Gemini ---
 app.post('/api/ai/gemini-proxy', async (req, res) => {
+  const userKey = req.headers['x-user-gemini-key'];
+  const geminiApiKey = (Array.isArray(userKey) ? userKey[0] : userKey) || process.env.GEMINI_API_KEY;
   const tokensStr = req.cookies.google_drive_tokens;
-  if (!tokensStr) {
-    return res.status(401).json({ error: 'Assistente não conectado. Por favor, faça login com Google.' });
+
+  if (!geminiApiKey && !tokensStr) {
+    return res.status(401).json({ error: 'Assistente não conectado. Configure uma API Key ou faça login com Google.' });
   }
 
   const { prompt, config, systemInstruction } = req.body;
   
   try {
-    const tokens = JSON.parse(tokensStr);
-    const client = getOAuthClient();
-    
-    client.setCredentials(tokens);
+    let url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`;
+    const headers: any = { 'Content-Type': 'application/json' };
 
-    // Refresh token se necessário (essencial para serverless)
-    // O Google SDK gerencia a expiração automaticamente se houver um refresh_token
-    const { token, res: refreshResponse } = await client.getAccessToken();
-    
-    if (!token) throw new Error('Falha ao obter token de acesso.');
-    
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent`, {
+    if (geminiApiKey) {
+      url += `?key=${geminiApiKey}`;
+    } else if (tokensStr) {
+      const tokens = JSON.parse(tokensStr);
+      const client = getOAuthClient();
+      client.setCredentials(tokens);
+      const { token } = await client.getAccessToken();
+      if (!token) throw new Error('Falha ao obter token de acesso.');
+      headers['Authorization'] = `Bearer ${token}`;
+
+      // Sincronia de Tokens se renovado
+      if (client.credentials.access_token !== tokens.access_token) {
+        res.cookie('google_drive_tokens', JSON.stringify(client.credentials), {
+          httpOnly: true, secure: true, sameSite: 'none', maxAge: 30 * 24 * 60 * 60 * 1000,
+        });
+      }
+    }
+
+    const response = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         contents: req.body.contents || [{ parts: [{ text: prompt }] }],
-        generationConfig: config || {
-          temperature: 0.7,
-          maxOutputTokens: 2048,
-        },
+        generationConfig: config || { temperature: 0.7, maxOutputTokens: 2048 },
         systemInstruction: systemInstruction ? { parts: [{ text: systemInstruction }] } : undefined
       })
     });
 
     const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || 'Erro no Gemini');
     
-    if (!response.ok) {
-      throw new Error(data.error?.message || 'Erro na comunicação com o Gemini');
-    }
-    
-    // Sincronia de Tokens: Se o SDK renovou o token nesta chamada, 
-    // precisamos atualizar o cookie do usuário, senão a próxima chamada falhará.
-    const currentTokens = client.credentials;
-    if (currentTokens.access_token !== tokens.access_token) {
-      res.cookie('google_drive_tokens', JSON.stringify(client.credentials), {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        maxAge: 30 * 24 * 60 * 60 * 1000,
-      });
-    }
-    
-    // Retorna o texto formatado para o frontend
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     res.json({ text });
-    
   } catch (error: any) {
     console.error('AI Gemini Proxy Error:', error);
     res.status(500).json({ error: error.message });
@@ -159,7 +150,7 @@ app.post('/api/ai/gemini-proxy', async (req, res) => {
 app.post('/api/ai/gpt-proxy', async (req, res) => {
   // Prioriza a chave enviada pelo usuário via header para custo zero do dono do app
   const userKey = req.headers['x-user-openai-key'];
-  const openaiApiKey = userKey || process.env.OPENAI_API_KEY;
+  const openaiApiKey = (Array.isArray(userKey) ? userKey[0] : userKey) || process.env.OPENAI_API_KEY;
 
   if (!openaiApiKey) {
     return res.status(401).json({ error: 'OPENAI_KEY_MISSING', message: 'Configuração necessária: Insira sua chave OpenAI nos Ajustes de IA.' });
@@ -206,7 +197,7 @@ app.post('/api/ai/gpt-proxy', async (req, res) => {
 // --- AI Assistant Proxy (Plugin Style) - DeepSeek ---
 app.post('/api/ai/deepseek-proxy', async (req, res) => {
   const userKey = req.headers['x-user-deepseek-key'];
-  const deepseekApiKey = userKey || process.env.DEEPSEEK_API_KEY;
+  const deepseekApiKey = (Array.isArray(userKey) ? userKey[0] : userKey) || process.env.DEEPSEEK_API_KEY;
 
   if (!deepseekApiKey) {
     return res.status(401).json({ error: 'Chave de API DeepSeek não encontrada.' });
@@ -251,7 +242,7 @@ app.post('/api/ai/deepseek-proxy', async (req, res) => {
 // --- Translation Proxy (DeepL) ---
 app.post('/api/translate/deepl-proxy', async (req, res) => {
   const userKey = req.headers['x-user-deepl-key'];
-  const deeplApiKey = userKey || process.env.DEEPL_API_KEY;
+  const deeplApiKey = (Array.isArray(userKey) ? userKey[0] : userKey) || process.env.DEEPL_API_KEY;
 
   if (!deeplApiKey) {
     return res.status(401).json({ error: 'Chave de API DeepL não configurada.' });
@@ -311,6 +302,9 @@ app.post('/api/ai/validate-key', async (req, res) => {
         headers: { 'Authorization': `DeepL-Auth-Key ${key}` }
       });
       if (!resp.ok) throw new Error('Chave DeepL inválida (verifique se é Free ou Pro).');
+    } else if (type === 'gemini') {
+      const resp = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+      if (!resp.ok) throw new Error('Chave Gemini inválida ou sem permissão.');
     }
     
     res.json({ success: true, message: 'Conexão estabelecida com sucesso.' });
@@ -487,10 +481,11 @@ async function startServer() {
     app.get('*', (req, res) => {
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
-    
-    console.log(`Server running on http://localhost:${PORT}`);
-    });
   }
+
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
 }
 
 startServer();

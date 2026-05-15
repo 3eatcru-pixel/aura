@@ -24,16 +24,19 @@ async function callAiProxy(model: 'gemini' | 'gpt' | 'deepseek', payload: any) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   
   // Validação preventiva BYOK
+  if (model === 'gemini') {
+    const key = localStorage.getItem('aura_gemini_key') || (import.meta.env.VITE_GEMINI_API_KEY as string);
+    if (key) headers['x-user-gemini-key'] = key;
+  }
+
   if (model === 'gpt') {
-    const key = localStorage.getItem('aura_openai_key');
-    if (!key) throw new Error('Chave OpenAI não configurada. Vá em Ajustes de IA.');
-    headers['x-user-openai-key'] = key;
+    const key = localStorage.getItem('aura_openai_key') || (import.meta.env.VITE_OPENAI_API_KEY as string);
+    if (key) headers['x-user-openai-key'] = key;
   }
 
   if (model === 'deepseek') {
-    const key = localStorage.getItem('aura_deepseek_key');
-    if (!key) throw new Error('Chave DeepSeek não configurada. Vá em Ajustes de IA.');
-    headers['x-user-deepseek-key'] = key;
+    const key = localStorage.getItem('aura_deepseek_key') || (import.meta.env.VITE_DEEPSEEK_API_KEY as string);
+    if (key) headers['x-user-deepseek-key'] = key;
   }
 
   const response = await fetch(endpoint, {
@@ -53,7 +56,8 @@ async function callAiProxy(model: 'gemini' | 'gpt' | 'deepseek', payload: any) {
 // Helper genérico para chamar o proxy do servidor para tradução (DeepL)
 async function callTranslationProxy(payload: any) {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (localStorage.getItem('aura_deepl_key')) headers['x-user-deepl-key'] = localStorage.getItem('aura_deepl_key')!;
+  const key = localStorage.getItem('aura_deepl_key') || (import.meta.env.VITE_DEEPL_API_KEY as string);
+  if (key) headers['x-user-deepl-key'] = key;
 
   const response = await fetch('/api/translate/deepl-proxy', {
     method: 'POST',
