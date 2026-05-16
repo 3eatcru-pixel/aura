@@ -1,5 +1,15 @@
 {
   "entities": {
+    "Note": {
+      "title": "Note",
+      "description": "A quick scratchpad note",
+      "type": "object",
+      "properties": {
+        "content": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["content", "createdAt"]
+    },
     "User": {
       "title": "User",
       "description": "User profile information",
@@ -151,10 +161,114 @@
         "title": { "type": "string" },
         "content": { "type": "string" },
         "order": { "type": "number" },
+        "isPremium": { "type": "boolean" },
+        "priceCoins": { "type": "number" },
         "updatedAt": { "type": "string", "format": "date-time" },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["title", "content", "order", "updatedAt", "createdAt"]
+    },
+    "Wallet": {
+      "title": "Wallet",
+      "description": "User's virtual wallet",
+      "type": "object",
+      "properties": {
+        "balanceCoins": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["balanceCoins", "updatedAt"]
+    },
+    "Purchase": {
+      "title": "Purchase",
+      "description": "A transaction recording a purchase",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "projectId": { "type": "string" },
+        "chapterId": { "type": "string" },
+        "packageId": { "type": "string" },
+        "amountCoins": { "type": "number" },
+        "amountBRL": { "type": "number" },
+        "status": { "type": "string" },
+        "provider": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "status", "createdAt"]
+    },
+    "PublishedWork": {
+      "title": "PublishedWork",
+      "description": "A snapshot of a project for the public catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "synopsis": { "type": "string" },
+        "coverImage": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorName": { "type": "string" },
+        "genre": { "type": "string" },
+        "tags": { "type": "array" },
+        "pricing": { "type": "object" },
+        "stats": { "type": "object" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "authorId", "updatedAt"]
+    },
+    "PublishedChapter": {
+      "title": "PublishedChapter",
+      "description": "A snapshot of a chapter for the public catalog",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "workId": { "type": "string" },
+        "chapterId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "order": { "type": "number" },
+        "isPremium": { "type": "boolean" },
+        "priceCoins": { "type": "number" },
+        "publishedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workId", "chapterId", "title", "content", "order", "publishedAt"]
+    },
+    "WorkStats": {
+      "title": "WorkStats",
+      "description": "Analytics for a published work",
+      "type": "object",
+      "properties": {
+        "workId": { "type": "string" },
+        "unlocks": { "type": "number" },
+        "revenueBRL": { "type": "number" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["workId", "updatedAt"]
+    },
+    "Payout": {
+      "title": "Payout",
+      "description": "A payout request from an author",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "authorId": { "type": "string" },
+        "authorEmail": { "type": "string" },
+        "amountBRL": { "type": "number" },
+        "pixKey": { "type": "string" },
+        "status": { "type": "string" },
+        "requestedAt": { "type": "string", "format": "date-time" },
+        "estimatedArrival": { "type": "string", "format": "date-time" }
+      },
+      "required": ["authorId", "amountBRL", "status", "requestedAt"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Global application settings",
+      "type": "object",
+      "properties": {
+        "platformFeePercent": { "type": "number" },
+        "coinValueBRL": { "type": "number" },
+        "minPayoutBRL": { "type": "number" }
+      }
     },
     "CinematicNode": {
       "title": "CinematicNode",
@@ -185,6 +299,10 @@
     "/projects/{projectId}": {
       "schema": "Project",
       "description": "Main writing projects"
+    },
+    "/projects/{projectId}/notes/{noteId}": {
+      "schema": "Note",
+      "description": "Scratchpad notes for the project"
     },
     "/projects/{projectId}/art/{artId}": {
       "schema": "ArtAsset",
@@ -225,6 +343,53 @@
     "/projects/{projectId}/cinematic/{nodeId}": {
       "schema": "CinematicNode",
       "description": "Cinematic nodes for the visual storyboard"
+    },
+    "/published_works/{workId}": {
+      "schema": "PublishedWork",
+      "description": "Public catalog data for works"
+    },
+    "/published_works/{workId}/lore/{loreId}": {
+      "schema": "Lore",
+      "description": "Public lore for a work"
+    },
+    "/published_works/{workId}/characters/{charId}": {
+      "schema": "Character",
+      "description": "Public characters for a work"
+    },
+    "/published_chapters/{pubChapterId}": {
+      "schema": "PublishedChapter",
+      "description": "Publicly accessible chapter snapshots"
+    },
+    "/purchases/{purchaseId}": {
+      "schema": "Purchase",
+      "description": "Transaction logs for coin and chapter purchases"
+    },
+    "/wallets/{userId}": {
+      "schema": "Wallet",
+      "description": "User coin wallets"
+    },
+    "/work_stats/{projectId}": {
+      "schema": "WorkStats",
+      "description": "Private analytics for authors"
+    },
+    "/payouts/{payoutId}": {
+      "schema": "Payout",
+      "description": "Withdrawal requests from authors"
+    },
+    "/settings/monetization": {
+      "schema": "Settings",
+      "description": "Global monetization config"
+    },
+    "/settings/announcement": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string" },
+          "active": { "type": "boolean" },
+          "type": { "type": "string" }
+        }
+      },
+      "description": "Global platform announcement"
     }
   }
 }

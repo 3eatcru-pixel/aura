@@ -1,26 +1,279 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Helper para verificar se o usuário é dono do documento
-    function isOwner(userId) {
-      return request.auth != null && request.auth.uid == userId;
+    // -------------------------------------------------------------------------
+    // Phase 0: Global Safety Net
+    // -------------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
     }
 
-    // Regras para Projetos
-    match /projects/{projectId} {
-      allow read, update, delete: if isOwner(resource.data.ownerId);
-      allow create: if request.auth != null;
+    // -------------------------------------------------------------------------
+    // Phase 1: Primitives & Global Helpers
+    // -------------------------------------------------------------------------
+    function isSignedIn() { return request.auth != null; }
+    function authUid() { return request.auth.uid; }
+    function isOwner(uid) { return isSignedIn() && authUid() == uid; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isAdmin() { return isSignedIn() && exists(/databases/$(database)/documents/admins/$(authUid())); }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function isVerifiedUser() { return isSignedIn() && request.auth.token.email_verified == true; }
+    
+    // Master Gate for Project Resources
+    function isProjectOwner(projectId) {
+      return exists(/databases/$(database)/documents/projects/$(projectId)) && 
+             isOwner(get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId);
+    }
 
-      // Subcoleções (chapters, lore, art, cinematic, chat, etc.)
-      match /{allSubcollections=**} {
-        allow read, write: if isOwner(get(/databases/$(database)/documents/projects/$(projectId)).data.ownerId);
+    // -------------------------------------------------------------------------
+    // Phase 2: Entity Validation Blueprints
+    // -------------------------------------------------------------------------
+    
+    function isValidUser(data) {
+      return data.keys().hasAll(['displayName', 'email', 'createdAt'])
+        && data.displayName is string && data.displayName.size() <= 64
+        && data.email is string && data.email.size() <= 128
+        && data.createdAt == request.time;
+    }
+
+    function isValidUniverse(data) {
+      return data.keys().hasAll(['title', 'ownerId', 'createdAt', 'updatedAt'])
+        && data.title is string && data.title.size() <= 100
+        && data.ownerId == authUid()
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidProject(data) {
+      return data.keys().hasAll(['title', 'ownerId', 'format', 'createdAt', 'updatedAt'])
+        && data.title is string && data.title.size() <= 100
+        && data.ownerId == authUid()
+        && (data.format in ['novel', 'manga', 'comic', 'manhwa', 'webtoon', 'visual-novel', 'storyboard', 'light-novel'])
+        && data.createdAt == request.time
+        && data.updatedAt == request.time;
+    }
+
+    function isValidChapter(data) {
+      return data.keys().hasAll(['title', 'content', 'order', 'updatedAt', 'createdAt'])
+        && data.title is string && data.title.size() <= 100
+        && data.content is string && data.content.size() <= 500000
+        && data.order is int
+        && data.updatedAt == request.time
+        && data.createdAt == request.time;
+    }
+
+    function isValidLore(data) {
+      return data.keys().hasAll(['title', 'content', 'category', 'updatedAt'])
+        && data.title is string && data.title.size() <= 100
+        && data.content is string && data.content.size() <= 50000
+        && data.category in ['world', 'lore', 'note', 'rpg', 'item', 'magic', 'faction', 'timeline']
+        && data.updatedAt == request.time;
+    }
+
+    function isValidCharacter(data) {
+      return data.keys().hasAll(['name', 'updatedAt'])
+        && data.name is string && data.name.size() <= 100
+        && data.updatedAt == request.time;
+    }
+
+    function isValidArt(data) {
+      return data.keys().hasAll(['title', 'imageUrl', 'type', 'createdAt'])
+        && data.title is string && data.title.size() <= 100
+        && data.imageUrl is string && data.imageUrl.size() <= 1024
+        && data.type in ['concept', 'panel', 'background']
+        && data.createdAt == request.time;
+    }
+
+    function isValidNote(data) {
+      return data.keys().hasAll(['content', 'createdAt'])
+        && data.content is string && data.content.size() <= 10000
+        && data.createdAt == request.time;
+    }
+
+    function isValidSchedule(data) {
+      return data.keys().hasAll(['goal', 'deadline', 'updatedAt'])
+        && data.goal is number
+        && data.deadline is timestamp
+        && data.updatedAt == request.time;
+    }
+
+    function isValidCinematicNode(data) {
+      return data.keys().hasAll(['type', 'x', 'y', 'width', 'height', 'content', 'order', 'createdAt'])
+        && data.type in ['panel', 'scene', 'text', 'ref']
+        && data.createdAt == request.time;
+    }
+
+    // -------------------------------------------------------------------------
+    // Phase 3: Collection Rules
+    // -------------------------------------------------------------------------
+
+    // USERS
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) 
+        && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'photoURL', 'pixKey', 'updatedAt'])
+        && incoming().updatedAt == request.time;
+    }
+
+    // UNIVERSES
+    match /universes/{universeId} {
+      allow list: if isSignedIn() && resource.data.ownerId == authUid();
+      allow get: if isOwner(resource.data.ownerId) || isAdmin();
+      allow create: if isSignedIn() && isValidId(universeId) && isValidUniverse(incoming());
+      allow update: if isOwner(existing().ownerId)
+        && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'updatedAt'])
+        && incoming().updatedAt == request.time;
+      allow delete: if isOwner(existing().ownerId);
+    }
+
+    // PROJECTS
+    match /projects/{projectId} {
+      allow list: if isSignedIn() && resource.data.ownerId == authUid();
+      allow get: if isOwner(resource.data.ownerId) || isAdmin();
+      allow create: if isSignedIn() && isValidId(projectId) && isValidProject(incoming());
+      allow update: if isOwner(existing().ownerId)
+        && (
+          incoming().diff(existing()).affectedKeys().hasOnly(['title', 'subtitle', 'description', 'format', 'currentContent', 'isPublished', 'publicLink', 'genre', 'monetizationEnabled', 'defaultChapterPriceCoins', 'autoPremiumLastN', 'universeId', 'updatedAt'])
+          || isAdmin()
+        )
+        && incoming().updatedAt == request.time;
+      allow delete: if isOwner(existing().ownerId);
+
+      // Sub-collections
+      match /notes/{noteId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId) && isValidId(noteId) && isValidNote(incoming());
+        allow update: if isProjectOwner(projectId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['content'])
+          && incoming().updatedAt == request.time; // If we add updatedAt to notes
+        allow delete: if isProjectOwner(projectId);
+      }
+      match /art/{artId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId) && isValidId(artId) && isValidArt(incoming());
+        allow update: if isProjectOwner(projectId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'description', 'type', 'imageUrl']);
+        allow delete: if isProjectOwner(projectId);
+      }
+      match /characters/{charId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId) && isValidId(charId) && isValidCharacter(incoming());
+        allow update: if isProjectOwner(projectId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'description', 'role', 'traits', 'imageUrl', 'isAutoDetected', 'updatedAt'])
+          && incoming().updatedAt == request.time;
+        allow delete: if isProjectOwner(projectId);
+      }
+      match /lore/{loreId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId) && isValidId(loreId) && isValidLore(incoming());
+        allow update: if isProjectOwner(projectId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'category', 'updatedAt'])
+          && incoming().updatedAt == request.time;
+        allow delete: if isProjectOwner(projectId);
+
+        match /versions/{versionId} {
+          allow read: if isProjectOwner(projectId);
+          allow create: if isProjectOwner(projectId) && isValidId(versionId);
+          allow delete: if isProjectOwner(projectId);
+        }
+      }
+      match /items/{itemId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId) && isValidId(itemId);
+        allow update, delete: if isProjectOwner(projectId);
+      }
+      match /chapters/{chapterId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId) && isValidId(chapterId) && isValidChapter(incoming());
+        allow update: if isProjectOwner(projectId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['title', 'content', 'order', 'isPremium', 'priceCoins', 'updatedAt'])
+          && incoming().updatedAt == request.time;
+        allow delete: if isProjectOwner(projectId);
+
+        match /versions/{versionId} {
+          allow read: if isProjectOwner(projectId);
+          allow create: if isProjectOwner(projectId);
+          allow delete: if isProjectOwner(projectId);
+        }
+      }
+      match /versions/{versionId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId);
+        allow delete: if isProjectOwner(projectId);
+      }
+      match /chat/{msgId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId) && isValidId(msgId);
+        allow delete: if isProjectOwner(projectId);
+      }
+      match /schedules/{scheduleId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId) && isValidId(scheduleId) && isValidSchedule(incoming());
+        allow update: if isProjectOwner(projectId)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['goal', 'deadline', 'currentProgress', 'title', 'updatedAt'])
+          && incoming().updatedAt == request.time;
+        allow delete: if isProjectOwner(projectId);
+      }
+      match /cinematic/{nodeId} {
+        allow read: if isProjectOwner(projectId);
+        allow create: if isProjectOwner(projectId) && isValidId(nodeId) && isValidCinematicNode(incoming());
+        allow update: if isProjectOwner(projectId);
+        allow delete: if isProjectOwner(projectId);
       }
     }
 
-    // Regras para Universos
-    match /universes/{universeId} {
-      allow read, update, delete: if isOwner(resource.data.ownerId);
-      allow create: if request.auth != null;
+    // PUBLIC CATALOG
+    match /published_works/{workId} {
+      allow read, list: if true;
+      allow write: if isAdmin();
+      
+      match /lore/{loreId} { allow read: if true; }
+      match /characters/{charId} { allow read: if true; }
+    }
+
+    match /published_chapters/{pubChapterId} {
+      allow read, list: if !resource.data.isPremium 
+        || isAdmin()
+        || (isSignedIn() && (
+             exists(/databases/$(database)/documents/purchases/$( "chap_purch_" + authUid() + "_" + resource.data.chapterId ))
+             || get(/databases/$(database)/documents/published_works/$(resource.data.workId)).data.authorId == authUid()
+           ));
+      allow write: if isAdmin();
+    }
+
+    // MONETIZATION
+    match /wallets/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow write: if false; 
+    }
+
+    match /purchases/{purchaseId} {
+      allow list: if isSignedIn() && resource.data.userId == authUid();
+      allow get: if isOwner(resource.data.userId) || isAdmin();
+      allow write: if false; 
+    }
+
+    match /work_stats/{projectId} {
+      allow get: if isProjectOwner(projectId) || isAdmin();
+      allow write: if false; 
+    }
+
+    match /payouts/{payoutId} {
+      allow list: if isSignedIn() && resource.data.authorId == authUid();
+      allow get: if isOwner(resource.data.authorId) || isAdmin();
+      allow write: if isSignedIn() && isValidId(payoutId) && incoming().authorId == authUid() && incoming().status == 'pending'; 
+      allow update: if isOwner(existing().authorId) && incoming().status == 'cancelled' && existing().status == 'pending';
+    }
+
+    match /settings/{settingId} {
+      allow read: if settingId == 'announcement' || (settingId == 'monetization' && isSignedIn());
+      allow write: if isAdmin();
+    }
+
+    match /admins/{userId} {
+      allow get: if isSignedIn();
     }
   }
 }

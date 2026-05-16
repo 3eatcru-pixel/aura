@@ -1,6 +1,8 @@
 {
-  "name": "AURA • Escritura Profissional",
+  "name": "AURA - Escrita e Edição Profissional",
   "description": "A plataforma definitiva para arquitetos de histórias. Com detecção inteligente de personagens, gestão de lore, cronogramas editoriais e assistência criativa por IA.",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

@@ -1,111 +1,121 @@
-import { LayoutDashboard, PenTool, Users, Map, Calendar, MessageSquare, Book, ChevronLeft, Layout, Sparkles } from 'lucide-react';
+import React from 'react';
+import { LayoutDashboard, BookOpen, Settings, Shield, Sparkles, ChevronLeft, MessageSquare, Calendar, Database, Layers3 } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { motion } from 'motion/react';
 
-interface SidebarProps {
-  activeView: string;
-  setView: (view: any) => void;
-  hasActiveProject: boolean;
-  onBackToDashboard: () => void;
-}
-
-export function Sidebar({ activeView, setView, hasActiveProject, onBackToDashboard }: SidebarProps) {
-  const menuItems = [
-    { id: 'editor', icon: PenTool, label: 'Escritório' },
-    { id: 'reader', icon: Book, label: 'Modo Leitura' },
-    { id: 'storyboard', icon: Layout, label: 'Storyboard' },
-    { id: 'characters', icon: Users, label: 'Personagens' },
-    { id: 'lore', icon: Map, label: 'Enciclopédia' },
-    { id: 'schedule', icon: Calendar, label: 'Cronograma' },
-    { id: 'chat', icon: MessageSquare, label: 'Oráculo IA' },
-  ];
+export function Sidebar({ activeView, setView, hasActiveProject, onBackToDashboard, isGuest, isAdmin }: any) { 
+  const NavItem = ({ id, label, icon: Icon, disabled = false }: any) => (
+    <button
+      disabled={disabled}
+      onClick={() => setView(id)}
+      className={cn(
+        "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-[10px] font-black uppercase tracking-[0.2em] transition-all relative group",
+        activeView === id 
+          ? "text-editorial-accent bg-white/[0.03]" 
+          : "text-white/30 hover:text-white hover:bg-white/[0.02]",
+        disabled && "opacity-20 cursor-not-allowed"
+      )}
+    >
+      <Icon className={cn("w-3.5 h-3.5 transition-transform", activeView === id ? "scale-110" : "group-hover:scale-110")} />
+      {label}
+      {activeView === id && (
+        <div className="absolute left-0 w-[2px] h-4 bg-editorial-accent rounded-full" />
+      )}
+    </button>
+  );
 
   return (
-    <motion.aside 
-      initial={false}
-      whileHover={{ width: 260 }}
-      className="w-20 bg-editorial-sidebar border-r border-editorial-border flex flex-col py-8 z-40 transition-all duration-500 group/sidebar overflow-hidden shadow-[10px_0_30px_rgba(0,0,0,0.5)]"
-    >
-      <div className="px-5 mb-10 flex items-center gap-4 overflow-hidden shrink-0">
-        <div 
-          className="w-10 h-10 bg-editorial-accent rounded-2xl flex items-center justify-center text-white font-brand text-2xl cursor-pointer shadow-[0_0_15px_rgba(124,58,237,0.4)] hover:scale-110 transition-all shrink-0 active:scale-95" 
-          onClick={onBackToDashboard}
-        >
-          L
+    <div className="w-full md:w-72 bg-[#050505] border-r border-white/5 flex flex-col h-full pt-10 pb-6 relative overflow-hidden">
+      {/* Background visual element */}
+      <div className="absolute top-0 right-0 w-32 h-32 bg-editorial-accent/5 blur-[80px] rounded-full -mr-16 -mt-16 pointer-events-none" />
+
+      <div className="flex items-center gap-4 px-6 mb-12 relative">
+        <div className="w-10 h-10 rounded-2xl bg-editorial-accent flex items-center justify-center shadow-neon group cursor-pointer transition-transform hover:scale-105 active:scale-95">
+          <Sparkles className="w-5 h-5 text-black" />
         </div>
-        <div className="flex flex-col opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-500">
-          <span className="font-brand text-2xl tracking-widest text-[#EAEAEA]">LUMEN</span>
-          <span className="text-[8px] font-black uppercase tracking-[0.3em] text-editorial-accent">Ateliê Criativo</span>
+        <div className="flex flex-col">
+          <p className="text-xs font-brand uppercase tracking-[0.3em] text-white font-black">ORÁCULO</p>
+          <div className="flex items-center gap-2">
+            <span className="w-1.5 h-[1px] bg-editorial-accent" />
+            <p className="text-[8px] font-mono uppercase tracking-[0.2em] text-editorial-accent/50">v. 4.0.0</p>
+          </div>
         </div>
       </div>
 
-      <nav className="flex flex-col space-y-2 px-3 flex-1 overflow-y-auto custom-scrollbar">
-        <button
-          onClick={onBackToDashboard}
-          className={cn(
-            "p-3.5 rounded-2xl transition-all duration-300 flex items-center gap-4 group/item",
-            activeView === 'dashboard' 
-              ? "text-white bg-white/10 shadow-neon border border-white/20" 
-              : "text-editorial-muted hover:text-white hover:bg-white/5"
-          )}
-        >
-          <LayoutDashboard className={cn("w-6 h-6 shrink-0 transition-transform duration-300 group-hover/item:scale-110", activeView === 'dashboard' && "text-editorial-accent")} />
-          <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-300 whitespace-nowrap">Dashboard</span>
-        </button>
+      <div className="flex-1 space-y-10 px-3">
+        <div>
+           <div className="flex items-center gap-2 px-3 mb-4">
+             <p className="text-xs font-serif italic text-white/20 tracking-wide uppercase">Workspace</p>
+             <div className="flex-1 h-[1px] bg-white/5" />
+           </div>
+           <div className="space-y-1">
+             <NavItem id="dashboard" label="Mesa de Trabalho" icon={LayoutDashboard} />
+             <NavItem id="catalog" label="Acervo Global" icon={BookOpen} />
+           </div>
+        </div>
 
-        <div className="h-px bg-white/5 mx-2 my-4" />
+        {hasActiveProject && (
+          <div>
+             <div className="flex items-center justify-between px-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <p className="text-xs font-serif italic text-white/20 tracking-wide uppercase">Laboratório</p>
+                  <div className="w-1 h-1 rounded-full bg-editorial-accent/30" />
+                </div>
+                <button 
+                  onClick={onBackToDashboard}
+                  className="p-1.5 hover:bg-white/5 rounded-lg transition-colors text-white/10 hover:text-editorial-accent"
+                  title="Voltar ao Painel"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+             </div>
+             <div className="space-y-1">
+               <NavItem id="editor" label="Pergaminhos" icon={Layers3} />
+               <NavItem id="characters" label="Biografias" icon={Database} />
+               <NavItem id="lore" label="Arquivos de Lore" icon={Database} />
+               <NavItem id="chat" label="Dialogar com IA" icon={MessageSquare} />
+               <NavItem id="schedule" label="Cronologia" icon={Calendar} />
+             </div>
+          </div>
+        )}
 
-        {hasActiveProject && menuItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setView(item.id)}
-            className={cn(
-              "p-3.5 rounded-2xl transition-all duration-300 flex items-center gap-4 group/item relative",
-              activeView === item.id 
-                ? "text-white bg-white/10 shadow-neon border border-white/20" 
-                : "text-editorial-muted hover:text-white hover:bg-white/5"
-            )}
+        {isAdmin && (
+          <div>
+             <p className="px-3 mb-4 text-[8px] font-black uppercase tracking-[0.4em] text-white/20 font-mono">Kernel Access</p>
+             <div className="space-y-1">
+               <NavItem id="admin" label="Administração" icon={Shield} />
+             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="px-6 pt-8 border-t border-white/5 mt-auto">
+        <div className="flex flex-col gap-4">
+          <button 
+            disabled 
+            className="flex items-center gap-3 text-[9px] font-black uppercase tracking-widest text-white/10 hover:text-white transition-colors group cursor-not-allowed"
           >
-            {activeView === item.id && (
-              <motion.div 
-                layoutId="active-indicator"
-                className="absolute left-[-4px] w-1 h-8 bg-editorial-accent rounded-full shadow-[0_0_10px_#7C3AED]"
-              />
-            )}
-            <item.icon className={cn("w-6 h-6 shrink-0 transition-all duration-300 group-hover/item:scale-110", activeView === item.id && "text-editorial-accent")} />
-            <span className={cn(
-              "text-[9px] font-black uppercase tracking-[0.2em] transition-opacity duration-500 whitespace-nowrap",
-              activeView === item.id ? "opacity-100" : "opacity-0 group-hover/sidebar:opacity-100"
-            )}>
-              {item.label}
-            </span>
+            <Settings className="w-3.5 h-3.5 opacity-50" />
+            Preferências
           </button>
-        ))}
-      </nav>
-
-      <div className="mt-8 px-4 py-6 mb-4 mx-3 bg-white/5 rounded-[32px] border border-white/10 opacity-0 group-hover/sidebar:opacity-100 transition-all duration-500 flex flex-col gap-3 group-hover/sidebar:translate-y-0 translate-y-4">
-         <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-editorial-accent/20 flex items-center justify-center border border-editorial-accent/30">
-               <Sparkles className="w-4 h-4 text-editorial-accent" />
-            </div>
-            <div className="flex flex-col">
-               <span className="text-[9px] font-black uppercase tracking-widest text-[#EAEAEA]">Nível de Escrita</span>
-               <div className="w-24 h-1 bg-white/10 rounded-full mt-1 overflow-hidden">
-                  <div className="w-2/3 h-full bg-editorial-accent shadow-[0_0_10px_#7C3AED]"></div>
+          
+          <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5">
+             {isGuest ? (
+               <div className="flex items-center gap-2">
+                 <div className="w-1 h-1 rounded-full bg-yellow-500 animate-pulse" />
+                 <p className="text-[8px] font-black uppercase tracking-widest text-white/30">Acesso Visitante</p>
                </div>
-            </div>
-         </div>
-      </div>
-
-      <div className="px-5 flex items-center gap-4 shrink-0 mt-auto">
-        <div className="w-10 h-10 rounded-2xl border border-white/10 flex items-center justify-center text-[10px] font-black text-[#EAEAEA] shrink-0 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer">
-          BC
+             ) : (
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2">
+                    <div className="w-1 h-1 rounded-full bg-green-500/50" />
+                    <p className="text-[8px] font-mono uppercase tracking-widest text-white/20">Sync Active</p>
+                 </div>
+                 <span className="text-[7px] font-black text-editorial-accent py-0.5 px-1 bg-editorial-accent/10 rounded">BETA</span>
+               </div>
+             )}
+          </div>
         </div>
-        <div className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-500 flex flex-col min-w-0">
-           <span className="text-[9px] font-black uppercase tracking-widest text-[#EAEAEA] truncate">Beat Cru</span>
-           <span className="text-[8px] font-bold text-editorial-accent uppercase tracking-widest truncate">Status: Ativo</span>
-        </div>
       </div>
-    </motion.aside>
-  );
+    </div>
+  ); 
 }

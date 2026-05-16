@@ -1,324 +1,127 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Project, Chapter, ArtAsset } from '../types';
+import React, { useState } from 'react';
+import { ChevronLeft, ChevronRight, BookOpen, User, Star, Share2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Book, ChevronLeft, ChevronRight, Type, Maximize2, Minimize2, ArrowLeft, Layers, Image as ImageIcon } from 'lucide-react';
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
-import { db } from '../lib/firebase';
+import { Project, Chapter } from '../types';
 import { cn } from '../lib/utils';
 
 interface ReaderModeProps {
   project: Project;
   chapters: Chapter[];
-  initialChapterId?: string | null;
   onBack: () => void;
-  key?: string;
+  projectFormat?: string | null;
 }
 
-export function ReaderMode({ project, chapters, initialChapterId, onBack }: ReaderModeProps) {
-  const [fontSize, setFontSize] = useState<'sm' | 'base' | 'lg' | 'xl'>('lg');
-  const [isFullWidth, setIsFullWidth] = useState(false);
-  const [fontFamily, setFontFamily] = useState<'serif' | 'sans'>('serif');
-  const readerScrollRef = useRef<HTMLDivElement>(null);
-  const [activeChapterIndex, setActiveChapterIndex] = useState(() => {
-    if (!initialChapterId) return 0;
-    const index = chapters.findIndex(c => c.id === initialChapterId);
-    return index !== -1 ? index : 0;
-  });
-  const [viewMode, setViewMode] = useState<'text' | 'visual'>(project.type === 'manga' ? 'visual' : 'text');
-  const [visualPanels, setVisualPanels] = useState<ArtAsset[]>([]);
-
-  // Segurança: Ajusta o índice se a lista de capítulos diminuir
-  useEffect(() => {
-    if (activeChapterIndex >= chapters.length && chapters.length > 0) {
-      setActiveChapterIndex(chapters.length - 1);
-    }
-  }, [chapters.length]);
-
-  useEffect(() => {
-    const unsub = onSnapshot(
-      query(collection(db, 'projects', project.id, 'art'), where('type', '==', 'panel')),
-      (snap) => {
-        setVisualPanels(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as ArtAsset)).sort((a,b) => {
-          // Sort by pageNumber first for chronological order
-          if (a.pageNumber !== b.pageNumber) {
-            return (a.pageNumber || 0) - (b.pageNumber || 0);
-          }
-          // Then by createdAt if available, otherwise by title
-          if (a.createdAt && b.createdAt) return a.createdAt.toMillis() - b.createdAt.toMillis();
-          return a.title.localeCompare(b.title);
-        }));
-      }
-    );
-    return () => unsub();
-  }, [project.id]);
-
+export function ReaderMode({ project, chapters, onBack, projectFormat }: ReaderModeProps) {
+  const [activeChapterIndex, setActiveChapterIndex] = useState(0);
   const currentChapter = chapters[activeChapterIndex];
 
-  const fontSizes = {
-    sm: 'text-base',
-    base: 'text-lg',
-    lg: 'text-xl',
-    xl: 'text-2xl'
-  };
-
-  if (chapters.length === 0) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-center p-12 bg-editorial-paper">
-        <Book className="w-12 h-12 text-editorial-muted mb-4 opacity-20" />
-        <h2 className="font-serif text-2xl italic text-editorial-muted">O manuscrito ainda está em branco...</h2>
-        <button 
-          onClick={onBack}
-          className="mt-6 text-[10px] font-black uppercase tracking-widest text-editorial-accent hover:opacity-70 flex items-center gap-2"
-        >
-          <ArrowLeft className="w-3 h-3" /> Voltar ao Editor
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div className="h-full flex flex-col bg-editorial-paper overflow-hidden text-white selection:bg-editorial-accent/30">
-      {/* Header de Controle */}
-      <div className="h-16 border-b border-white/5 px-8 flex items-center justify-between bg-black/40 backdrop-blur-md z-20">
-        <div className="flex items-center gap-4">
+    <div className="flex-1 flex flex-col bg-[#050505] overflow-hidden">
+      <header className="px-4 md:px-8 py-3 md:py-4 border-b border-white/5 flex items-center justify-between bg-[#080808]/80 backdrop-blur-xl z-20">
+        <div className="flex items-center gap-3 md:gap-6 truncate">
           <button 
             onClick={onBack}
-            className="p-2 hover:bg-white/5 rounded-full transition-all text-white/40 hover:text-white"
-            title="Sair da Leitura"
+            className="p-2 hover:bg-white/5 rounded-lg transition-colors text-white/40 hover:text-white shrink-0"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ChevronLeft className="w-5 h-5" />
           </button>
-          <div className="h-4 w-px bg-white/10" />
-          <h2 className="font-serif italic text-lg truncate max-w-[200px] lg:max-w-md text-white/90">
-            {project.title} 
-            {project.subtitle && <span className="text-white/20 non-italic ml-2 border-l border-white/10 pl-2">{project.subtitle}</span>}
-            <span className="text-white/10 non-italic ml-2">&middot; {currentChapter?.title}</span>
-          </h2>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Controles de Tipografia */}
-          <div className="flex bg-black/40 border border-white/5 rounded-full p-1 mr-4">
-            <button
-               onClick={() => setViewMode('text')}
-               className={cn(
-                 "p-2 rounded-full transition-all",
-                 viewMode === 'text' ? "bg-editorial-accent text-white shadow-neon-small" : "text-white/20 hover:text-white/40"
-               )}
-               title="Modo Texto"
-            >
-              <Book className="w-4 h-4" />
-            </button>
-            <button
-               onClick={() => setViewMode('visual')}
-               className={cn(
-                 "p-2 rounded-full transition-all",
-                 viewMode === 'visual' ? "bg-editorial-accent text-white shadow-neon-small" : "text-white/20 hover:text-white/40"
-               )}
-               title="Modo Visual (Storyboard)"
-            >
-              <Layers className="w-4 h-4" />
-            </button>
+          <div className="truncate">
+            <h2 className="text-[10px] md:text-xs font-brand uppercase tracking-[0.2em] text-white truncate max-w-[150px] md:max-w-none">{project.title}</h2>
+            <p className="text-[8px] md:text-[9px] font-black uppercase tracking-[0.2em] md:tracking-[0.3em] text-editorial-accent truncate">Leitura / {projectFormat || 'Volume'}</p>
           </div>
-
-          <div className="flex bg-black/40 border border-white/5 rounded-full p-1 mr-4">
-            {(['sm', 'base', 'lg', 'xl'] as const).map((size) => (
-              <button
-                key={size}
-                disabled={viewMode === 'visual'}
-                onClick={() => setFontSize(size)}
-                className={cn(
-                  "w-8 h-8 flex items-center justify-center rounded-full transition-all text-[10px] font-black uppercase tracking-tighter",
-                  fontSize === size ? "bg-editorial-accent text-white shadow-neon-small" : "text-white/20 hover:text-white/40",
-                  viewMode === 'visual' && "opacity-20 cursor-not-allowed"
-                )}
-              >
-                {size}
-              </button>
-            ))}
-          </div>
-
-          <button
-            onClick={() => setIsFullWidth(!isFullWidth)}
-            className="p-2 text-white/20 hover:text-white/40 transition-all"
-            title={isFullWidth ? "Centralizar Texto" : "Largura Total"}
-          >
-            {isFullWidth ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-          </button>
         </div>
 
-        <div className="h-4 w-px bg-white/10" />
-
-        <div className="flex bg-black/40 border border-white/5 rounded-full p-1 ml-4">
-          <button
-            onClick={() => setFontFamily('serif')}
-            className={cn(
-              "px-3 py-1 rounded-full text-[9px] font-bold transition-all",
-              fontFamily === 'serif' ? "bg-white text-black" : "text-white/40"
-            )}
-          >Serif</button>
-          <button
-            onClick={() => setFontFamily('sans')}
-            className={cn(
-              "px-3 py-1 rounded-full text-[9px] font-bold transition-all",
-              fontFamily === 'sans' ? "bg-white text-black" : "text-white/40"
-            )}
-          >Sans</button>
+        <div className="flex items-center gap-2 md:gap-4 shrink-0">
+           <button className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-[9px] font-black uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/10 transition-all">
+             <Star className="w-3 h-3" />
+             Favoritar
+           </button>
+           <button className="sm:hidden p-2 rounded-full bg-white/5 border border-white/10 text-white/40">
+             <Star className="w-3.5 h-3.5" />
+           </button>
+           <button className="p-2 md:p-2.5 rounded-full bg-white/5 border border-white/10 text-white/40 hover:text-white transition-all">
+             <Share2 className="w-3.5 h-3.5" />
+           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Área de Leitura */}
-      <div ref={readerScrollRef} className="flex-1 overflow-y-auto scrollbar-hide">
-        <div className={cn(
-          "mx-auto transition-all duration-500 py-24 px-8 lg:px-0",
-          isFullWidth ? "max-w-5xl" : "max-w-3xl"
-        )}>
+      <main className="flex-1 overflow-y-auto cinematic-grid pt-8 md:pt-12 pb-24">
+        <div className="max-w-2xl mx-auto px-5 md:px-6">
           <AnimatePresence mode="wait">
-            <motion.article
-              key={activeChapterIndex}
+            <motion.div
+              key={currentChapter?.id}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="relative"
+              transition={{ duration: 0.5 }}
             >
-              <div className="text-center mb-20 space-y-6">
-                <div className="flex items-center justify-center gap-4">
-                  <div className="h-px w-8 bg-white/5" />
-                  <span className="text-[10px] font-black uppercase tracking-[0.6em] text-white/20">
-                    {currentChapter?.groupTitle || "Crônica Singela"}
-                  </span>
-                  <div className="h-px w-8 bg-white/5" />
-                </div>
-                <h1 className="text-6xl lg:text-7xl font-brand text-editorial-accent tracking-widest uppercase leading-tight">
-                  {currentChapter.title}
-                </h1>
-                {currentChapter.subtitle && (
-                  <p className="text-xl lg:text-2xl font-serif italic text-white/40 tracking-wide mt-2">
-                    {currentChapter.subtitle}
-                  </p>
-                )}
-                <div className="flex flex-col items-center gap-4 pt-4">
-                   <div className="w-16 h-px bg-editorial-accent/30" />
-                   <span className="text-[8px] font-black uppercase tracking-[0.4em] text-white/10">Segmento {activeChapterIndex + 1} de {chapters.length}</span>
-                </div>
-              </div>
+              <header className="mb-10 md:mb-16 text-center">
+                 <p className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.3em] md:tracking-[0.4em] text-editorial-accent mb-3 md:mb-4">
+                   Capítulo {activeChapterIndex + 1}
+                 </p>
+                 <h1 className="text-3xl md:text-5xl font-brand uppercase tracking-tight text-white mb-6 md:mb-8">
+                   {currentChapter?.title || 'Sem Título'}
+                 </h1>
+                 <div className="w-12 md:w-16 h-px bg-white/10 mx-auto" />
+              </header>
 
-              <div className={cn(
-                "leading-[2.6] text-white/80 whitespace-pre-wrap transition-all selection:bg-editorial-accent/40 tracking-wide",
-                fontFamily === 'serif' ? "font-serif" : "font-sans",
-                fontSizes[fontSize]
-              )}>
-                {viewMode === 'text' ? (
-                  currentChapter.content || (
-                    <p className="text-white/10 italic text-center py-20">Este capítulo não possui conteúdo ainda.</p>
-                  )
-                ) : (
-                  <div className="space-y-12 py-10">
-                    {visualPanels.filter(p => p.pageNumber === (currentChapter.order)).length > 0 ? (
-                      visualPanels
-                        .filter(p => p.pageNumber === (currentChapter.order))
-                        .sort((a, b) => { // Re-sort here to ensure correct order after filtering
-                          if (a.pageNumber !== b.pageNumber) return (a.pageNumber || 0) - (b.pageNumber || 0);
-                          if (a.createdAt && b.createdAt) return a.createdAt.toMillis() - b.createdAt.toMillis();
-                          return a.title.localeCompare(b.title);
-                        })
-                        .map((panel, idx) => (
-                      <div key={panel.id} className="group flex flex-col gap-4">
-                         <div className="relative aspect-video bg-white/5 rounded-[40px] overflow-hidden">
-                           <img 
-                             src={panel.imageUrl} 
-                             alt={panel.title} 
-                             className="w-full h-full object-cover shadow-2xl border border-white/5 transition-opacity duration-500" 
-                             referrerPolicy="no-referrer"
-                             loading="lazy"
-                           />
-                           <div className="absolute top-6 left-6">
-                              <span className="bg-editorial-accent text-white text-[10px] font-black px-4 py-1.5 rounded-full shadow-neon">#{idx + 1} &middot; {panel.title}</span>
-                           </div>
-                         </div>
-                      </div>
-                    ))) : (
-                      <div className="text-center py-32 opacity-10">
-                         <ImageIcon className="w-16 h-16 mx-auto mb-4" />
-                         <p className="font-serif italic text-2xl">Nenhum painel visual mapeado para esta página.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+              <article className="prose prose-invert prose-base md:prose-lg max-w-none">
+                 {currentChapter?.content ? (
+                   currentChapter.content.split('\n\n').map((paragraph, idx) => (
+                     <p key={idx} className="text-white/80 leading-[1.8] text-base md:text-lg font-light mb-6 md:mb-8 first-letter:text-3xl md:first-letter:text-4xl first-letter:font-brand first-letter:mr-2 md:first-letter:mr-3 first-letter:float-left first-letter:text-editorial-accent">
+                       {paragraph}
+                     </p>
+                   ))
+                 ) : (
+                   <div className="h-64 flex flex-col items-center justify-center opacity-20 italic text-sm">
+                      <BookOpen className="w-12 h-12 mb-4" />
+                      <p>Este capítulo ainda não possui conteúdo.</p>
+                   </div>
+                 )}
+              </article>
 
-              {/* Navegação entre capítulos no final da leitura */}
-              <div className="mt-32 pt-16 border-t border-white/5 flex items-center justify-between pb-32">
-                {activeChapterIndex > 0 ? (
-                  <button
-                    onClick={() => {
-                      setActiveChapterIndex(activeChapterIndex - 1);
-                      readerScrollRef.current?.scrollTo(0, 0);
-                    }}
-                    className="flex flex-col items-start group"
-                  >
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white/20 mb-2 flex items-center gap-2 group-hover:text-editorial-accent transition-colors">
-                       <ChevronLeft className="w-3 h-3" /> Anterior
-                    </span>
-                    <span className="font-serif italic text-xl text-white/40 group-hover:text-white transition-colors">
-                      {chapters[activeChapterIndex - 1].title}
-                    </span>
-                  </button>
-                ) : <div />}
+              <footer className="mt-16 md:mt-24 pt-8 md:pt-12 border-t border-white/5 flex flex-col items-center gap-6 md:gap-8">
+                 <div className="flex items-center gap-3">
+                    <div className="w-8 md:w-10 h-8 md:h-10 rounded-full bg-white/5 flex items-center justify-center text-white/20">
+                       <User className="w-4 md:w-5 h-4 md:h-5" />
+                    </div>
+                    <div>
+                       <p className="text-[8px] md:text-[10px] font-black uppercase tracking-widest text-white/40">Escrito por</p>
+                       <p className="text-[11px] md:text-xs font-brand uppercase tracking-tight text-white">{project.authorName || 'Autor'}</p>
+                    </div>
+                 </div>
 
-                {activeChapterIndex < chapters.length - 1 ? (
-                  <button
-                    onClick={() => {
-                      setActiveChapterIndex(activeChapterIndex + 1);
-                      readerScrollRef.current?.scrollTo(0, 0);
-                    }}
-                    className="flex flex-col items-end group text-right"
-                  >
-                    <span className="text-[10px] font-black uppercase tracking-widest text-white/20 mb-2 flex items-center gap-2 group-hover:text-editorial-accent transition-colors">
-                       Próximo <ChevronRight className="w-3 h-3" />
-                    </span>
-                    <span className="font-serif italic text-xl text-white/40 group-hover:text-white transition-colors">
-                      {chapters[activeChapterIndex + 1].title}
-                    </span>
-                  </button>
-                ) : (
-                  <div className="text-center w-full">
-                     <Book className="w-8 h-8 text-editorial-accent mx-auto mb-4 opacity-20" />
-                     <p className="font-serif italic text-white/20">Fim da crônica atual.</p>
-                  </div>
-                )}
-              </div>
-            </motion.article>
+                 <div className="flex items-center gap-3 md:gap-4 w-full justify-center">
+                    <button 
+                      disabled={activeChapterIndex === 0}
+                      onClick={() => setActiveChapterIndex(p => p - 1)}
+                      className="flex-1 md:flex-none flex items-center justify-center gap-2 px-4 md:px-6 py-3 rounded-xl bg-white/5 border border-white/10 text-[9px] md:text-[10px] font-black uppercase tracking-widest text-white/40 hover:text-white disabled:opacity-10 transition-all"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Anterior
+                    </button>
+                    <button 
+                      disabled={activeChapterIndex === chapters.length - 1}
+                      onClick={() => setActiveChapterIndex(p => p + 1)}
+                      className="flex-1 md:flex-none flex items-center justify-center gap-2 px-5 md:px-8 py-3 rounded-xl bg-editorial-accent text-black font-black uppercase tracking-widest text-[9px] md:text-[10px] hover:scale-105 active:scale-95 disabled:opacity-10 transition-all shadow-neon"
+                    >
+                      Próximo
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                 </div>
+              </footer>
+            </motion.div>
           </AnimatePresence>
         </div>
-      </div>
+      </main>
 
-      {/* Barra de Progresso / Sumário Flutuante */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-editorial-accent/95 text-white py-3 px-6 rounded-full shadow-2xl backdrop-blur-sm z-30 border border-white/10">
-         <button 
-           disabled={activeChapterIndex === 0}
-           onClick={() => {
-             setActiveChapterIndex(activeChapterIndex - 1);
-             readerScrollRef.current?.scrollTo(0, 0);
-           }}
-           className="hover:scale-110 disabled:opacity-30 disabled:hover:scale-100 transition-all"
-         >
-           <ChevronLeft className="w-5 h-5" />
-         </button>
-         <div className="flex flex-col items-center min-w-[80px]">
-           <span className="text-[8px] font-black uppercase tracking-widest opacity-50 mb-0.5">Página</span>
-           <span className="text-xs font-bold tabular-nums">{activeChapterIndex + 1} de {chapters.length}</span>
+      <div className="fixed bottom-0 left-0 right-0 p-4 md:absolute md:bottom-8 md:left-8 md:right-auto flex items-center justify-center md:justify-start gap-4 text-[7px] md:text-[9px] font-black uppercase tracking-[0.3em] text-white/20 bg-black/50 md:bg-transparent backdrop-blur-md md:backdrop-blur-none border-t border-white/5 md:border-none z-30">
+         <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full bg-editorial-accent animate-pulse" />
+            Progresso: {Math.round(((activeChapterIndex + 1) / chapters.length) * 100)}%
          </div>
-         <button 
-           disabled={activeChapterIndex === chapters.length - 1}
-           onClick={() => {
-             setActiveChapterIndex(activeChapterIndex + 1);
-             readerScrollRef.current?.scrollTo(0, 0);
-           }}
-           className="hover:scale-110 disabled:opacity-30 disabled:hover:scale-100 transition-all"
-         >
-           <ChevronRight className="w-5 h-5" />
-         </button>
+         <div className="w-px h-3 bg-white/10" />
+         <span>Cap. {activeChapterIndex + 1} / {chapters.length}</span>
       </div>
     </div>
   );
